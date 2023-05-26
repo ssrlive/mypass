@@ -1,3 +1,5 @@
+#![windows_subsystem = "windows"]
+
 use mypass::{app::App, error::Error};
 
 fn main() {

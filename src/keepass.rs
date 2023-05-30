@@ -33,24 +33,12 @@ impl KpDb {
     }
 
     fn build_db_key(&self) -> Result<DatabaseKey> {
-        let mut _key_file: File;
-        let db_key = match (&self.password, &self.key_file) {
-            (None, None) => {
-                let info = "Password or key file must be specified";
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, info).into());
-            }
-            (Some(db_password), None) => DatabaseKey::with_password(db_password),
-            (None, Some(db_key_file)) => {
-                let db_key_file = std::path::Path::new(db_key_file);
-                _key_file = File::open(db_key_file)?;
-                DatabaseKey::with_keyfile(&mut _key_file)
-            }
-            (Some(db_password), Some(db_key_file)) => {
-                let db_key_file = std::path::Path::new(db_key_file);
-                _key_file = File::open(db_key_file)?;
-                DatabaseKey::with_password_and_keyfile(db_password, &mut _key_file)
-            }
-        };
+        let mut key_file = self.key_file.clone();
+        let mut key_file = key_file.as_mut().and_then(|f| File::open(f).ok());
+        let key_file = key_file.as_mut().map(|kf| kf as &mut dyn std::io::Read);
+
+        let db_key = DatabaseKey::new(self.password.as_deref(), key_file);
+
         Ok(db_key)
     }
 

@@ -37,7 +37,13 @@ impl KpDb {
         let mut key_file = key_file.as_mut().and_then(|f| File::open(f).ok());
         let key_file = key_file.as_mut().map(|kf| kf as &mut dyn std::io::Read);
 
-        let db_key = DatabaseKey::new(self.password.as_deref(), key_file);
+        let mut db_key = DatabaseKey::new();
+        if let Some(ref password) = self.password {
+            db_key = db_key.with_password(password)?;
+        }
+        if let Some(key_file) = key_file {
+            db_key = db_key.with_keyfile(key_file)?;
+        }
 
         Ok(db_key)
     }

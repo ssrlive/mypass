@@ -6,6 +6,9 @@ pub enum Error {
     #[error("keepass::error::DatabaseOpenError: {0}")]
     KeepassDatabaseOpenError(#[from] keepass::error::DatabaseOpenError),
 
+    #[error("keepass::error::DatabaseKeyError: {0}")]
+    KeepassDatabaseKeyError(#[from] keepass::error::DatabaseKeyError),
+
     #[error("std::io::Error: {0}")]
     StdIoError(#[from] std::io::Error),
 

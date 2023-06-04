@@ -10,6 +10,7 @@ const PADDING: f32 = 1.0;
 #[derive(Default)]
 pub struct App {
     kpdb: Option<KpDb>,
+    file_path: Option<String>,
 }
 
 impl App {
@@ -22,7 +23,10 @@ impl App {
             let kpdb = KpDb::open(&db_path, Some(&password), None)?;
             Ok::<KpDb, Error>(kpdb)
         };
-        Self { kpdb: block().ok() }
+        Self {
+            kpdb: block().ok(),
+            file_path: None,
+        }
     }
 
     fn render_kp_items(&mut self, ui: &mut egui::Ui) {
@@ -68,13 +72,26 @@ impl App {
         ui.add_space(PADDING);
     }
 
-    fn render_top_panel(&self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn render_top_panel(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.add_space(PADDING);
             egui::menu::bar(ui, |ui| {
                 ui.with_layout(egui::Layout::left_to_right(Align::Max), |ui| {
                     ui.add(egui::Label::new(
-                        RichText::new("📰").text_style(egui::TextStyle::Heading),
+                        RichText::new("🗋").text_style(egui::TextStyle::Heading),
+                    ));
+                    let open_file = ui.add(egui::Button::new(
+                        RichText::new("🗁").text_style(egui::TextStyle::Heading),
+                    ));
+                    if open_file.clicked() {
+                        let path = rfd::FileDialog::new().pick_file();
+                        if let Some(path) = path {
+                            self.file_path = Some(path.to_str().unwrap().to_string());
+                            log::info!("file_path: {:?}", self.file_path);
+                        }
+                    }
+                    let _save_file = ui.add(egui::Button::new(
+                        RichText::new("💾").text_style(egui::TextStyle::Heading),
                     ));
                 });
                 ui.with_layout(egui::Layout::right_to_left(Align::Max), |ui| {
@@ -83,6 +100,7 @@ impl App {
                     ));
                     if close_btn.clicked() {
                         frame.close();
+                        log::info!("Mypass closed...");
                     }
                     let _refresh_btn = ui.add(egui::Button::new(
                         RichText::new("🔄").text_style(egui::TextStyle::Body),

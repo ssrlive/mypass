@@ -95,18 +95,16 @@ impl App {
                     ui.add(egui::Button::new(text));
                 });
                 ui.with_layout(egui::Layout::right_to_left(Align::Max), |ui| {
-                    let close_btn = ui.add(egui::Button::new(
-                        RichText::new("❌").text_style(egui::TextStyle::Body),
-                    ));
-                    if close_btn.clicked() {
+                    let text = RichText::new("❌").text_style(egui::TextStyle::Body);
+                    if ui.add(egui::Button::new(text)).clicked() {
                         frame.close();
                     }
-                    let _refresh_btn = ui.add(egui::Button::new(
-                        RichText::new("🔄").text_style(egui::TextStyle::Body),
-                    ));
-                    let _theme_btn = ui.add(egui::Button::new(
-                        RichText::new("🌙").text_style(egui::TextStyle::Body),
-                    ));
+
+                    let text = RichText::new("🔄").text_style(egui::TextStyle::Body);
+                    if ui.add(egui::Button::new(text)).clicked() {}
+
+                    let text = RichText::new("🌙").text_style(egui::TextStyle::Body);
+                    if ui.add(egui::Button::new(text)).clicked() {}
                 });
             });
             ui.add_space(PADDING);

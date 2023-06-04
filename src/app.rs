@@ -79,22 +79,20 @@ impl App {
             ui.add_space(PADDING);
             egui::menu::bar(ui, |ui| {
                 ui.with_layout(egui::Layout::left_to_right(Align::Max), |ui| {
-                    ui.add(egui::Label::new(
-                        RichText::new("🗋").text_style(egui::TextStyle::Heading),
-                    ));
-                    let open_file = ui.add(egui::Button::new(
-                        RichText::new("🗁").text_style(egui::TextStyle::Heading),
-                    ));
-                    if open_file.clicked() {
+                    let text = RichText::new("🗋").text_style(egui::TextStyle::Heading);
+                    ui.add(egui::Label::new(text));
+
+                    let text = RichText::new("🗁").text_style(egui::TextStyle::Heading);
+                    if ui.add(egui::Button::new(text)).clicked() {
                         let path = rfd::FileDialog::new().pick_file();
                         if let Some(path) = path {
                             self.file_path = Some(path.to_str().unwrap().to_string());
                             log::info!("file_path: {:?}", self.file_path);
                         }
                     }
-                    let _save_file = ui.add(egui::Button::new(
-                        RichText::new("💾").text_style(egui::TextStyle::Heading),
-                    ));
+
+                    let text = RichText::new("💾").text_style(egui::TextStyle::Heading);
+                    ui.add(egui::Button::new(text));
                 });
                 ui.with_layout(egui::Layout::right_to_left(Align::Max), |ui| {
                     let close_btn = ui.add(egui::Button::new(

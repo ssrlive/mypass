@@ -1,5 +1,6 @@
 .*
 tmp/
 build/
+examples/
 Cargo.lock
 target/

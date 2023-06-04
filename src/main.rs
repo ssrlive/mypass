@@ -1,4 +1,4 @@
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use mypass::{app::App, error::Error};
 
@@ -13,7 +13,10 @@ fn main() {
         let env = env_logger::Env::default().default_filter_or(filter_str);
         env_logger::Builder::from_env(env).init();
 
-        let native_options = eframe::NativeOptions::default();
+        let native_options = eframe::NativeOptions {
+            initial_window_size: Some(eframe::egui::vec2(960.0, 640.0)),
+            ..Default::default()
+        };
 
         eframe::run_native(
             "MyPass",

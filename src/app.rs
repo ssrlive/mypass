@@ -11,6 +11,8 @@ const PADDING: f32 = 1.0;
 pub struct App {
     kpdb: Option<KpDb>,
     file_path: Option<String>,
+    allowed_to_close: bool,
+    show_confirmation_dialog: bool,
 }
 
 impl App {
@@ -25,7 +27,7 @@ impl App {
         };
         Self {
             kpdb: block().ok(),
-            file_path: None,
+            ..Default::default()
         }
     }
 
@@ -100,7 +102,6 @@ impl App {
                     ));
                     if close_btn.clicked() {
                         frame.close();
-                        log::info!("Mypass closed...");
                     }
                     let _refresh_btn = ui.add(egui::Button::new(
                         RichText::new("🔄").text_style(egui::TextStyle::Body),
@@ -138,9 +139,34 @@ impl App {
             });
         });
     }
+
+    fn render_confirm_exit_dialog(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if self.show_confirmation_dialog {
+            egui::Window::new("Do you want to quit?")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("Cancel").clicked() {
+                            self.show_confirmation_dialog = false;
+                        }
+                        if ui.button("Yes!").clicked() {
+                            self.allowed_to_close = true;
+                            frame.close();
+                            log::info!("Mypass closed.");
+                        }
+                    });
+                });
+        }
+    }
 }
 
 impl eframe::App for App {
+    fn on_close_event(&mut self) -> bool {
+        self.show_confirmation_dialog = true;
+        self.allowed_to_close
+    }
+
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         self.render_top_panel(ctx, frame);
         self.render_footer(ctx);
@@ -150,5 +176,6 @@ impl eframe::App for App {
                 self.render_kp_items(ui);
             });
         });
+        self.render_confirm_exit_dialog(ctx, frame);
     }
 }

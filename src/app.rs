@@ -6,17 +6,30 @@ use eframe::{
 use keepass::db::NodeRef;
 
 const PADDING: f32 = 1.0;
+pub const APP_NAME: &str = "mypass";
 
-#[derive(Default)]
+#[derive(Default, Debug, serde::Deserialize, serde::Serialize)]
+struct Config {
+    dark_mode: bool,
+}
+
+#[derive(Default, Debug)]
 pub struct App {
     kpdb: Option<KpDb>,
     file_path: Option<String>,
     allowed_to_close: bool,
     show_confirmation_dialog: bool,
+    config: Config,
 }
 
 impl App {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let config = cc
+            .storage
+            .and_then(|storage| storage.get_string(APP_NAME))
+            .and_then(|cfg| serde_json::from_str::<Config>(&cfg).ok())
+            .unwrap_or_default();
+
         let block = || {
             let db_path = dotenvy::var("DB_PATH")?;
             let password = dotenvy::var("PASSWORD")?;
@@ -27,6 +40,7 @@ impl App {
         };
         Self {
             kpdb: block().ok(),
+            config,
             ..Default::default()
         }
     }
@@ -103,8 +117,11 @@ impl App {
                     let text = RichText::new("🔄").text_style(egui::TextStyle::Body);
                     if ui.add(egui::Button::new(text)).clicked() {}
 
-                    let text = RichText::new("🌙").text_style(egui::TextStyle::Body);
-                    if ui.add(egui::Button::new(text)).clicked() {}
+                    let text = if self.config.dark_mode { "🔆" } else { "🌙" };
+                    let text = RichText::new(text).text_style(egui::TextStyle::Body);
+                    if ui.add(egui::Button::new(text)).clicked() {
+                        self.config.dark_mode = !self.config.dark_mode;
+                    }
                 });
             });
             ui.add_space(PADDING);
@@ -138,9 +155,14 @@ impl App {
 
     fn render_confirm_exit_dialog(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.show_confirmation_dialog {
-            egui::Window::new("Do you want to quit?")
+            let size = frame.info().window_info.size;
+            let pos = egui::Pos2::new(size.x / 2.0, size.y / 2.0);
+
+            let title = format!("Do you really want to quit {APP_NAME}?");
+            egui::Window::new(title)
                 .collapsible(false)
                 .resizable(false)
+                .default_pos(pos)
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         if ui.button("Cancel").clicked() {
@@ -149,7 +171,7 @@ impl App {
                         if ui.button("Yes!").clicked() {
                             self.allowed_to_close = true;
                             frame.close();
-                            log::info!("Mypass closed.");
+                            log::info!("{APP_NAME} closed.");
                         }
                     });
                 });
@@ -163,7 +185,18 @@ impl eframe::App for App {
         self.allowed_to_close
     }
 
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        if let Ok(cfg) = serde_json::to_string(&self.config) {
+            storage.set_string(APP_NAME, cfg);
+        }
+    }
+
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if self.config.dark_mode {
+            ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            ctx.set_visuals(egui::Visuals::light());
+        }
         self.render_top_panel(ctx, frame);
         self.render_footer(ctx);
         egui::CentralPanel::default().show(ctx, |ui| {

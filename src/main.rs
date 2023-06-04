@@ -1,6 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use mypass::{app::App, error::Error};
+use mypass::{
+    app::{App, APP_NAME},
+    error::Error,
+};
 
 fn main() {
     let block = || {
@@ -18,11 +21,7 @@ fn main() {
             ..Default::default()
         };
 
-        eframe::run_native(
-            "MyPass",
-            native_options,
-            Box::new(|cc| Box::new(App::new(cc))),
-        )?;
+        eframe::run_native(APP_NAME, native_options, Box::new(|cc| Box::new(App::new(cc))))?;
         Ok::<(), Error>(())
     };
     if let Err(e) = block() {

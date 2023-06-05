@@ -14,14 +14,67 @@ struct Config {
 }
 
 #[derive(Default, Debug)]
-pub struct AppUI {
-    kpdb: Option<KpDb>,
+struct UiState {
+    show_open_file_dialog: bool,
     file_path: Option<std::path::PathBuf>,
     password: String,
-    allowed_to_close: bool,
-    show_confirmation_dialog: bool,
-    show_open_file_dialog: bool,
+
+    show_confirm_quit_dialog: bool,
+    allowed_to_quit: bool,
+
     config: Config,
+}
+
+impl UiState {
+    fn on_show_open_file_dialog(&mut self) {
+        self.show_open_file_dialog = true;
+        self.show_confirm_quit_dialog = false;
+        self.file_path = None;
+        self.password.clear();
+    }
+
+    fn is_open_file_dialog_visible(&self) -> bool {
+        self.show_open_file_dialog
+    }
+
+    fn on_open_file_dialog_confirm(&mut self) -> (Option<std::path::PathBuf>, String) {
+        self.show_open_file_dialog = false;
+        (self.file_path.take(), std::mem::take(&mut self.password))
+    }
+
+    fn on_open_file_dialog_cancel(&mut self) {
+        self.show_open_file_dialog = false;
+        self.password.clear();
+        self.file_path = None;
+    }
+
+    fn on_show_confirm_quit_dialog(&mut self) {
+        self.show_open_file_dialog = false;
+        self.show_confirm_quit_dialog = true;
+    }
+
+    fn on_confirm_quit_dialog_quit(&mut self) {
+        self.allowed_to_quit = true;
+        self.show_confirm_quit_dialog = false;
+    }
+
+    fn on_confirm_quit_dialog_cancel(&mut self) {
+        self.show_confirm_quit_dialog = false;
+    }
+
+    fn is_confirm_quit_dialog_visible(&self) -> bool {
+        self.show_confirm_quit_dialog
+    }
+
+    fn is_allowed_to_quit(&self) -> bool {
+        self.allowed_to_quit
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct AppUI {
+    kpdb: Option<KpDb>,
+    state: UiState,
 }
 
 impl AppUI {
@@ -31,6 +84,8 @@ impl AppUI {
             .and_then(|storage| storage.get_string(APP_NAME))
             .and_then(|cfg| serde_json::from_str::<Config>(&cfg).ok())
             .unwrap_or_default();
+        let mut state = UiState::default();
+        state.config = config;
 
         let block = || {
             let db_path = dotenvy::var("DB_PATH")?;
@@ -40,9 +95,10 @@ impl AppUI {
             let kpdb = KpDb::open(&db_path, Some(&password), None)?;
             Ok::<KpDb, Error>(kpdb)
         };
+
         Self {
             kpdb: block().ok(),
-            config,
+            state,
             ..Default::default()
         }
     }
@@ -100,7 +156,7 @@ impl AppUI {
 
                     let text = RichText::new("🗁").text_style(egui::TextStyle::Heading);
                     if ui.add(egui::Button::new(text)).clicked() {
-                        self.show_open_file_dialog = true;
+                        self.state.on_show_open_file_dialog();
                     }
 
                     let text = RichText::new("💾").text_style(egui::TextStyle::Heading);
@@ -115,10 +171,10 @@ impl AppUI {
                     let text = RichText::new("🔄").text_style(egui::TextStyle::Body);
                     if ui.add(egui::Button::new(text)).clicked() {}
 
-                    let text = if self.config.dark_mode { "🔆" } else { "🌙" };
+                    let text = if self.state.config.dark_mode { "🔆" } else { "🌙" };
                     let text = RichText::new(text).text_style(egui::TextStyle::Body);
                     if ui.add(egui::Button::new(text)).clicked() {
-                        self.config.dark_mode = !self.config.dark_mode;
+                        self.state.config.dark_mode = !self.state.config.dark_mode;
                     }
                 });
             });
@@ -152,7 +208,7 @@ impl AppUI {
     }
 
     fn render_confirm_exit_dialog(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if self.show_confirmation_dialog {
+        if self.state.is_confirm_quit_dialog_visible() {
             let size = frame.info().window_info.size;
             let pos = egui::Pos2::new(size.x / 3.0, size.y / 3.0);
 
@@ -164,12 +220,12 @@ impl AppUI {
                 .show(ctx, |ui| {
                     ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
                         if ui.button("Quit").clicked() {
-                            self.allowed_to_close = true;
+                            self.state.on_confirm_quit_dialog_quit();
                             frame.close();
                             log::info!("{APP_NAME} closed.");
                         }
                         if ui.button("Cancel").clicked() {
-                            self.show_confirmation_dialog = false;
+                            self.state.on_confirm_quit_dialog_cancel();
                         }
                     });
                 });
@@ -177,7 +233,7 @@ impl AppUI {
     }
 
     fn render_open_file_dialog(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if self.show_open_file_dialog {
+        if self.state.is_open_file_dialog_visible() {
             let size = frame.info().window_info.size;
             let pos = egui::Pos2::new(size.x / 3.0, size.y / 3.0);
 
@@ -189,24 +245,30 @@ impl AppUI {
                 .show(ctx, |ui| {
                     ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
                         if ui.button("Pick a file").clicked() {
-                            self.file_path = rfd::FileDialog::new().pick_file();
-                            log::info!("file path: {:?}", self.file_path);
+                            self.state.file_path = rfd::FileDialog::new().pick_file();
+                            log::info!("file path: {:?}", self.state.file_path);
                         }
-                        if let Some(path) = &self.file_path {
-                            let path = path.to_str().unwrap_or("invalid path");
-                            ui.label(path);
-                        }
+                        let text = if let Some(path) = &self.state.file_path {
+                            path.to_str().unwrap_or("Invalid path")
+                        } else {
+                            "Please pick a keepass file"
+                        };
+                        ui.label(text);
                     });
                     ui.horizontal(|ui| {
-                        ui.label("Password:");
-                        ui.add(egui::TextEdit::singleline(&mut self.password));
+                        ui.label("Password");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.state.password)
+                                .password(true)
+                                .desired_width(size.x),
+                        );
                     });
                     ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
                         if ui.button("Open").clicked() {
-                            self.show_open_file_dialog = false;
+                            let (_path, _password) = self.state.on_open_file_dialog_confirm();
                         }
                         if ui.button("Cancel").clicked() {
-                            self.show_open_file_dialog = false;
+                            self.state.on_open_file_dialog_cancel();
                         }
                     });
                 });
@@ -216,18 +278,18 @@ impl AppUI {
 
 impl eframe::App for AppUI {
     fn on_close_event(&mut self) -> bool {
-        self.show_confirmation_dialog = true;
-        self.allowed_to_close
+        self.state.on_show_confirm_quit_dialog();
+        self.state.is_allowed_to_quit()
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        if let Ok(cfg) = serde_json::to_string(&self.config) {
+        if let Ok(cfg) = serde_json::to_string(&self.state.config) {
             storage.set_string(APP_NAME, cfg);
         }
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        if self.config.dark_mode {
+        if self.state.config.dark_mode {
             ctx.set_visuals(egui::Visuals::dark());
         } else {
             ctx.set_visuals(egui::Visuals::light());

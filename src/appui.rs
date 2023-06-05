@@ -14,15 +14,17 @@ struct Config {
 }
 
 #[derive(Default, Debug)]
-pub struct App {
+pub struct AppUI {
     kpdb: Option<KpDb>,
-    file_path: Option<String>,
+    file_path: Option<std::path::PathBuf>,
+    password: String,
     allowed_to_close: bool,
     show_confirmation_dialog: bool,
+    show_open_file_dialog: bool,
     config: Config,
 }
 
-impl App {
+impl AppUI {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let config = cc
             .storage
@@ -98,11 +100,7 @@ impl App {
 
                     let text = RichText::new("🗁").text_style(egui::TextStyle::Heading);
                     if ui.add(egui::Button::new(text)).clicked() {
-                        let path = rfd::FileDialog::new().pick_file();
-                        if let Some(path) = path {
-                            self.file_path = Some(path.to_str().unwrap().to_string());
-                            log::info!("file_path: {:?}", self.file_path);
-                        }
+                        self.show_open_file_dialog = true;
                     }
 
                     let text = RichText::new("💾").text_style(egui::TextStyle::Heading);
@@ -156,22 +154,59 @@ impl App {
     fn render_confirm_exit_dialog(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.show_confirmation_dialog {
             let size = frame.info().window_info.size;
-            let pos = egui::Pos2::new(size.x / 2.0, size.y / 2.0);
+            let pos = egui::Pos2::new(size.x / 3.0, size.y / 3.0);
 
-            let title = format!("Do you really want to quit {APP_NAME}?");
+            let title = format!("Do you want to quit {APP_NAME} really?");
             egui::Window::new(title)
                 .collapsible(false)
                 .resizable(false)
                 .default_pos(pos)
                 .show(ctx, |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.button("Cancel").clicked() {
-                            self.show_confirmation_dialog = false;
-                        }
-                        if ui.button("Yes!").clicked() {
+                    ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
+                        if ui.button("Quit").clicked() {
                             self.allowed_to_close = true;
                             frame.close();
                             log::info!("{APP_NAME} closed.");
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.show_confirmation_dialog = false;
+                        }
+                    });
+                });
+        }
+    }
+
+    fn render_open_file_dialog(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if self.show_open_file_dialog {
+            let size = frame.info().window_info.size;
+            let pos = egui::Pos2::new(size.x / 3.0, size.y / 3.0);
+
+            let title = format!("Open keepass file");
+            egui::Window::new(title)
+                .collapsible(false)
+                .resizable(true)
+                .default_pos(pos)
+                .show(ctx, |ui| {
+                    ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
+                        if ui.button("Pick a file").clicked() {
+                            self.file_path = rfd::FileDialog::new().pick_file();
+                            log::info!("file path: {:?}", self.file_path);
+                        }
+                        if let Some(path) = &self.file_path {
+                            let path = path.to_str().unwrap_or("invalid path");
+                            ui.label(path);
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Password:");
+                        ui.add(egui::TextEdit::singleline(&mut self.password));
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
+                        if ui.button("Open").clicked() {
+                            self.show_open_file_dialog = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.show_open_file_dialog = false;
                         }
                     });
                 });
@@ -179,7 +214,7 @@ impl App {
     }
 }
 
-impl eframe::App for App {
+impl eframe::App for AppUI {
     fn on_close_event(&mut self) -> bool {
         self.show_confirmation_dialog = true;
         self.allowed_to_close
@@ -206,5 +241,6 @@ impl eframe::App for App {
             });
         });
         self.render_confirm_exit_dialog(ctx, frame);
+        self.render_open_file_dialog(ctx, frame);
     }
 }

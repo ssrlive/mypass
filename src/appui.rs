@@ -4,6 +4,7 @@ use eframe::{
     emath::Align,
 };
 use keepass::db::NodeRef;
+use std::path::PathBuf;
 
 const PADDING: f32 = 1.0;
 pub const APP_NAME: &str = "mypass";
@@ -16,8 +17,9 @@ struct Config {
 #[derive(Default, Debug)]
 struct UiState {
     show_open_file_dialog: bool,
-    file_path: Option<std::path::PathBuf>,
+    file_path: Option<PathBuf>,
     password: String,
+    keyfile: Option<PathBuf>,
 
     show_confirm_quit_dialog: bool,
     allowed_to_quit: bool,
@@ -31,21 +33,24 @@ impl UiState {
         self.show_confirm_quit_dialog = false;
         self.file_path = None;
         self.password.clear();
+        self.keyfile = None;
     }
 
     fn is_open_file_dialog_visible(&self) -> bool {
         self.show_open_file_dialog
     }
 
-    fn on_open_file_dialog_confirm(&mut self) -> (Option<std::path::PathBuf>, String) {
+    fn on_open_file_dialog_confirm(&mut self) -> (Option<PathBuf>, String, Option<PathBuf>) {
         self.show_open_file_dialog = false;
-        (self.file_path.take(), std::mem::take(&mut self.password))
+        let password = std::mem::take(&mut self.password);
+        (self.file_path.take(), password, self.keyfile.take())
     }
 
     fn on_open_file_dialog_cancel(&mut self) {
         self.show_open_file_dialog = false;
         self.password.clear();
         self.file_path = None;
+        self.keyfile = None;
     }
 
     fn on_show_confirm_quit_dialog(&mut self) {
@@ -89,10 +94,10 @@ impl AppUI {
 
         let block = || {
             let db_path = dotenvy::var("DB_PATH")?;
-            let password = dotenvy::var("PASSWORD")?;
-            // let key_file = dotenvy::var("KEY_FILE")?;
+            let password = dotenvy::var("PASSWORD").ok();
+            let key_file = dotenvy::var("KEY_FILE").ok();
 
-            let kpdb = KpDb::open(&db_path, Some(&password), None)?;
+            let kpdb = KpDb::open(&db_path, password.as_deref(), key_file.as_deref())?;
             Ok::<KpDb, Error>(kpdb)
         };
 
@@ -244,14 +249,16 @@ impl AppUI {
                 .default_pos(pos)
                 .show(ctx, |ui| {
                     ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
-                        if ui.button("Pick a file").clicked() {
-                            self.state.file_path = rfd::FileDialog::new().pick_file();
-                            log::info!("file path: {:?}", self.state.file_path);
+                        if ui.button("Pick keepass file").clicked() {
+                            let path = rfd::FileDialog::new().pick_file();
+                            if path.is_some() {
+                                self.state.file_path = path;
+                            }
                         }
                         let text = if let Some(path) = &self.state.file_path {
                             path.to_str().unwrap_or("Invalid path")
                         } else {
-                            "Please pick a keepass file"
+                            "Please pick a keepass database file"
                         };
                         ui.label(text);
                     });
@@ -264,8 +271,28 @@ impl AppUI {
                         );
                     });
                     ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
+                        if ui.button("Pick key file").clicked() {
+                            let path = rfd::FileDialog::new().pick_file();
+                            if path.is_some() {
+                                self.state.keyfile = path;
+                            }
+                        }
+                        let text = if let Some(path) = &self.state.keyfile {
+                            path.to_str().unwrap_or("Invalid key file path")
+                        } else {
+                            "Pick a key file for the keepass database (optional)"
+                        };
+                        ui.label(text);
+                    });
+                    ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
                         if ui.button("Open").clicked() {
-                            let (_path, _password) = self.state.on_open_file_dialog_confirm();
+                            let (path, password, keyfile) = self.state.on_open_file_dialog_confirm();
+                            if let Some(path) = path {
+                                let path = path.to_str().unwrap_or("Invalid path");
+                                let password = if password.is_empty() { None } else { Some(password) };
+                                let keyfile = keyfile.as_ref().and_then(|p| p.to_str().and_then(|p| Some(p)));
+                                self.kpdb = KpDb::open(path, password.as_deref(), keyfile).ok();
+                            }
                         }
                         if ui.button("Cancel").clicked() {
                             self.state.on_open_file_dialog_cancel();

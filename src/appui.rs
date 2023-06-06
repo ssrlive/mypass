@@ -1,4 +1,4 @@
-use crate::{error::Error, keepass::KpDb};
+use crate::{error::Error, keepass::KpDb, password};
 use eframe::{
     egui::{self, Hyperlink, Label, RichText, ScrollArea, TopBottomPanel},
     emath::Align,
@@ -264,11 +264,7 @@ impl AppUI {
                     });
                     ui.horizontal(|ui| {
                         ui.label("Password");
-                        ui.add(
-                            egui::TextEdit::singleline(&mut self.state.password)
-                                .password(true)
-                                .desired_width(size.x),
-                        );
+                        password::password_ui(ui, &mut self.state.password);
                     });
                     ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
                         if ui.button("Pick key file").clicked() {

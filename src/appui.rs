@@ -115,7 +115,12 @@ impl AppUI {
         let font_file = Self::unix_find_cjk_font()?;
 
         #[cfg(windows)]
-        let font_file = "C:/Windows/Fonts/simsun.ttc".to_string();
+        let font_file = {
+            let mut font_path = PathBuf::from(std::env::var("SystemRoot").ok()?);
+            font_path.push("Fonts");
+            font_path.push("msyh.ttc");
+            font_path.to_str()?.to_string()
+        };
 
         let font_name = Self::get_font_name(&font_file)?;
 

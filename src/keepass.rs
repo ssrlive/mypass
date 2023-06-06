@@ -39,7 +39,9 @@ impl KpDb {
 
         let mut db_key = DatabaseKey::new();
         if let Some(ref password) = self.password {
-            db_key = db_key.with_password(password);
+            if !password.is_empty() {
+                db_key = db_key.with_password(password);
+            }
         }
         if let Some(key_file) = key_file {
             db_key = db_key.with_keyfile(key_file)?;

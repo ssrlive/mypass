@@ -33,8 +33,7 @@ impl KpDb {
     }
 
     fn build_db_key(&self) -> Result<DatabaseKey> {
-        let mut key_file = self.key_file.clone();
-        let mut key_file = key_file.as_mut().and_then(|f| File::open(f).ok());
+        let mut key_file = self.key_file.as_ref().and_then(|f| File::open(f).ok());
         let key_file = key_file.as_mut().map(|kf| kf as &mut dyn std::io::Read);
 
         let mut db_key = DatabaseKey::new();

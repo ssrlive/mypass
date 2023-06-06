@@ -1,7 +1,8 @@
 use crate::{error::Error, keepass::KpDb, password};
 use eframe::{
-    egui::{self, Hyperlink, Label, RichText, ScrollArea, TopBottomPanel},
+    egui::{self, Context, FontData, FontDefinitions, Hyperlink, Label, RichText, ScrollArea, TopBottomPanel},
     emath::Align,
+    epaint::FontFamily,
 };
 use keepass::db::NodeRef;
 use std::path::PathBuf;
@@ -84,6 +85,7 @@ pub struct AppUI {
 
 impl AppUI {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        Self::configure_fonts(&cc.egui_ctx);
         let config = cc
             .storage
             .and_then(|storage| storage.get_string(APP_NAME))
@@ -106,6 +108,58 @@ impl AppUI {
             state,
             ..Default::default()
         }
+    }
+
+    pub fn configure_fonts(ctx: &Context) -> Option<()> {
+        #[cfg(unix)]
+        let font_file = Self::unix_find_cjk_font()?;
+
+        #[cfg(windows)]
+        let font_file = "C:/Windows/Fonts/simsun.ttc".to_string();
+
+        let font_name = Self::get_font_name(&font_file)?;
+
+        let font_file_bytes = std::fs::read(font_file).ok()?;
+
+        let mut font_def = FontDefinitions::default();
+        font_def
+            .font_data
+            .insert(font_name.to_string(), FontData::from_owned(font_file_bytes));
+
+        font_def
+            .families
+            .get_mut(&FontFamily::Proportional)
+            .unwrap()
+            .insert(0, font_name.to_string());
+
+        ctx.set_fonts(font_def);
+        Some(())
+    }
+
+    #[cfg(unix)]
+    fn unix_find_cjk_font() -> Option<String> {
+        use std::process::Command;
+        // linux/macOS command: fc-list
+        let output = Command::new("sh").arg("-c").arg("fc-list").output().ok()?;
+        let stdout = std::str::from_utf8(&output.stdout).ok()?;
+        #[cfg(target_os = "macos")]
+        let font_line = stdout
+            .lines()
+            .find(|line| line.contains("Regular") && line.contains("Songti"))
+            .unwrap_or("/System/Library/Fonts/PingFang.ttc");
+        #[cfg(target_os = "linux")]
+        let font_line = stdout
+            .lines()
+            .find(|line| line.contains("Regular") && line.contains("CJK"))
+            .unwrap_or("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc");
+
+        let font_path = font_line.split(':').next()?.trim();
+        Some(font_path.to_string())
+    }
+
+    fn get_font_name(font_path: &str) -> Option<String> {
+        let font_name = font_path.split('/').last()?.split('.').next()?;
+        Some(font_name.to_string())
     }
 
     fn render_kp_items(&mut self, ui: &mut egui::Ui) {

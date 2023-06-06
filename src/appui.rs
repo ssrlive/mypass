@@ -145,8 +145,8 @@ impl AppUI {
         #[cfg(target_os = "macos")]
         let font_line = stdout
             .lines()
-            .find(|line| line.contains("Regular") && line.contains("Songti"))
-            .unwrap_or("/System/Library/Fonts/PingFang.ttc");
+            .find(|line| line.contains("Regular") && line.contains("Hiragino Sans GB"))
+            .unwrap_or("/System/Library/Fonts/Hiragino Sans GB.ttc");
         #[cfg(target_os = "linux")]
         let font_line = stdout
             .lines()

@@ -1,109 +1,17 @@
-use crate::{error::Error, keepass::KpDb, password};
+use crate::{
+    error::Error,
+    keepass::KpDb,
+    password,
+    uistate::{Config, UiState},
+};
 use eframe::{
     egui::{self, Hyperlink, Label, RichText, ScrollArea, TopBottomPanel},
     emath::Align,
 };
 use keepass::db::NodeRef;
-use std::path::PathBuf;
 
 const PADDING: f32 = 1.0;
 pub const APP_NAME: &str = "mypass";
-
-#[derive(Default, Debug, serde::Deserialize, serde::Serialize)]
-struct Config {
-    dark_mode: bool,
-}
-
-#[derive(Default, Debug)]
-struct UiState {
-    show_open_file_dialog: bool,
-    file_path: Option<PathBuf>,
-    password: String,
-    keyfile: Option<PathBuf>,
-
-    show_confirm_quit_dialog: bool,
-    allowed_to_quit: bool,
-
-    dropped_files: Vec<egui::DroppedFile>,
-
-    config: Config,
-}
-
-impl UiState {
-    fn on_show_open_file_dialog(&mut self) {
-        self.show_open_file_dialog = true;
-        self.show_confirm_quit_dialog = false;
-        self.file_path = None;
-        self.password.clear();
-        self.keyfile = None;
-    }
-
-    fn is_files_being_dropped(&self) -> bool {
-        !self.dropped_files.is_empty()
-    }
-
-    fn deal_with_dropped_files(&mut self) {
-        let mut file_path: Option<PathBuf> = None;
-        for file in &self.dropped_files {
-            let info = if let Some(path) = &file.path {
-                path.display().to_string()
-            } else if !file.name.is_empty() {
-                file.name.clone()
-            } else {
-                "???".to_owned()
-            };
-            if info.ends_with(".kdbx") {
-                file_path = file.path.clone();
-                break;
-            }
-        }
-        if file_path.is_some() {
-            self.on_show_open_file_dialog();
-            self.file_path = file_path;
-        }
-
-        self.dropped_files.clear();
-    }
-
-    fn is_open_file_dialog_visible(&self) -> bool {
-        self.show_open_file_dialog
-    }
-
-    fn on_open_file_dialog_confirm(&mut self) -> (Option<PathBuf>, String, Option<PathBuf>) {
-        self.show_open_file_dialog = false;
-        let password = std::mem::take(&mut self.password);
-        (self.file_path.take(), password, self.keyfile.take())
-    }
-
-    fn on_open_file_dialog_cancel(&mut self) {
-        self.show_open_file_dialog = false;
-        self.password.clear();
-        self.file_path = None;
-        self.keyfile = None;
-    }
-
-    fn on_show_confirm_quit_dialog(&mut self) {
-        self.show_open_file_dialog = false;
-        self.show_confirm_quit_dialog = true;
-    }
-
-    fn on_confirm_quit_dialog_quit(&mut self) {
-        self.allowed_to_quit = true;
-        self.show_confirm_quit_dialog = false;
-    }
-
-    fn on_confirm_quit_dialog_cancel(&mut self) {
-        self.show_confirm_quit_dialog = false;
-    }
-
-    fn is_confirm_quit_dialog_visible(&self) -> bool {
-        self.show_confirm_quit_dialog
-    }
-
-    fn is_allowed_to_quit(&self) -> bool {
-        self.allowed_to_quit
-    }
-}
 
 #[derive(Default, Debug)]
 pub struct AppUI {
@@ -268,9 +176,10 @@ impl AppUI {
     }
 
     fn render_header(&self, ui: &mut egui::Ui) {
+        let file_path = self.kpdb.as_ref().and_then(|kpdb| kpdb.db_path.clone());
         ui.vertical_centered(|ui| {
             ui.heading("KeePass items");
-            ui.label("This is a list of KeePass items");
+            ui.label(&file_path.unwrap_or_else(|| "No file".to_string()));
         });
         ui.add_space(PADDING);
         // ui.add(Separator::default().spacing(20.0));

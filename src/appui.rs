@@ -24,6 +24,8 @@ struct UiState {
     show_confirm_quit_dialog: bool,
     allowed_to_quit: bool,
 
+    dropped_files: Vec<egui::DroppedFile>,
+
     config: Config,
 }
 
@@ -34,6 +36,33 @@ impl UiState {
         self.file_path = None;
         self.password.clear();
         self.keyfile = None;
+    }
+
+    fn is_files_being_dropped(&self) -> bool {
+        !self.dropped_files.is_empty()
+    }
+
+    fn deal_with_dropped_files(&mut self) {
+        let mut file_path: Option<PathBuf> = None;
+        for file in &self.dropped_files {
+            let info = if let Some(path) = &file.path {
+                path.display().to_string()
+            } else if !file.name.is_empty() {
+                file.name.clone()
+            } else {
+                "???".to_owned()
+            };
+            if info.ends_with(".kdbx") {
+                file_path = file.path.clone();
+                break;
+            }
+        }
+        if file_path.is_some() {
+            self.on_show_open_file_dialog();
+            self.file_path = file_path;
+        }
+
+        self.dropped_files.clear();
     }
 
     fn is_open_file_dialog_visible(&self) -> bool {
@@ -348,6 +377,40 @@ impl AppUI {
                 });
         }
     }
+
+    /// Preview hovering files
+    fn render_preview_files_being_dropped(ctx: &egui::Context) {
+        use egui::*;
+        use std::fmt::Write as _;
+
+        if !ctx.input(|i| i.raw.hovered_files.is_empty()) {
+            let text = ctx.input(|i| {
+                let mut text = "Dropping files:\n".to_owned();
+                for file in &i.raw.hovered_files {
+                    if let Some(path) = &file.path {
+                        write!(text, "\n{}", path.display()).ok();
+                    } else if !file.mime.is_empty() {
+                        write!(text, "\n{}", file.mime).ok();
+                    } else {
+                        text += "\n???";
+                    }
+                }
+                text
+            });
+
+            let painter = ctx.layer_painter(LayerId::new(Order::Foreground, Id::new("file_drop_target")));
+
+            let screen_rect = ctx.screen_rect();
+            painter.rect_filled(screen_rect, 0.0, Color32::from_black_alpha(192));
+            painter.text(
+                screen_rect.center(),
+                Align2::CENTER_CENTER,
+                text,
+                TextStyle::Heading.resolve(&ctx.style()),
+                Color32::WHITE,
+            );
+        }
+    }
 }
 
 impl eframe::App for AppUI {
@@ -378,5 +441,17 @@ impl eframe::App for AppUI {
         });
         self.render_confirm_exit_dialog(ctx, frame);
         self.render_open_file_dialog(ctx, frame);
+
+        Self::render_preview_files_being_dropped(ctx);
+        // Collect dropped files
+        ctx.input(|i| {
+            if !i.raw.dropped_files.is_empty() {
+                self.state.dropped_files = i.raw.dropped_files.clone();
+            }
+        });
+
+        if self.state.is_files_being_dropped() {
+            self.state.deal_with_dropped_files();
+        }
     }
 }

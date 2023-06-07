@@ -17,6 +17,7 @@ fn main() {
         env_logger::Builder::from_env(env).init();
 
         let native_options = eframe::NativeOptions {
+            drag_and_drop_support: true,
             initial_window_size: Some(eframe::egui::vec2(960.0, 640.0)),
             ..Default::default()
         };

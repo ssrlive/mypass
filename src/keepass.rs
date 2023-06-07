@@ -86,10 +86,10 @@ fn test_demo_db() {
         dotenvy::dotenv()?;
 
         let db_path = dotenvy::var("DB_PATH")?;
-        let password = dotenvy::var("PASSWORD")?;
-        // let key_file = dotenvy::var("KEY_FILE")?;
+        let password = dotenvy::var("PASSWORD").ok();
+        let key_file = dotenvy::var("KEY_FILE").ok();
 
-        let kpdb = KpDb::open(&db_path, Some(&password), None)?;
+        let kpdb = KpDb::open(&db_path, password.as_deref(), key_file.as_deref())?;
         // Iterate over all `Group`s and `Entry`s
         for node in kpdb.get_root().unwrap() {
             match node {

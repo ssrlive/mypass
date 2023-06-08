@@ -9,16 +9,30 @@ pub(crate) fn find_cjk_fonts() -> Option<Vec<PathBuf>> {
         let stdout = std::str::from_utf8(&output.stdout).ok()?;
         #[cfg(target_os = "macos")]
         {
-            let font_line = stdout
-                .lines()
-                .find(|line| line.contains("Regular") && line.contains("Hiragino Sans GB"))
-                .unwrap_or("/System/Library/Fonts/Hiragino Sans GB.ttc");
-            let font_path = font_line.split(':').next()?.trim();
-            let font_path = PathBuf::from(font_path);
-            if !font_path.exists() {
-                return None;
-            }
-            Some(vec![font_path])
+            // Chinese, Japanese, Korean
+            static FONT_FILES: [(&str, &str); 3] = [
+                ("Hiragino Sans GB", "/System/Library/Fonts/Hiragino Sans GB.ttc"),
+                ("明朝", "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"),
+                ("AppleGothic", "/System/Library/Fonts/Supplemental/AppleGothic.ttf"),
+            ];
+            let font_files = FONT_FILES
+                .iter()
+                .map(|(font_name, def_font_path)| {
+                    let font_line = stdout
+                        .lines()
+                        .find(|line| line.contains("Regular") && line.contains(font_name))
+                        .unwrap_or(def_font_path);
+                    let font_path = font_line.split(':').next()?.trim();
+                    let font_path = PathBuf::from(font_path);
+                    if font_path.exists() {
+                        Some(font_path)
+                    } else {
+                        None
+                    }
+                })
+                .flatten()
+                .collect::<Vec<_>>();
+            Some(font_files)
         }
         #[cfg(target_os = "linux")]
         {

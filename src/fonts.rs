@@ -9,11 +9,11 @@ pub(crate) fn find_cjk_fonts() -> Option<Vec<PathBuf>> {
         let stdout = std::str::from_utf8(&output.stdout).ok()?;
         #[cfg(target_os = "macos")]
         {
-            // Chinese, Japanese, Korean
+            // Japanese, Korean, Chinese
             static FONT_FILES: [(&str, &str); 3] = [
-                ("Hiragino Sans GB", "/System/Library/Fonts/Hiragino Sans GB.ttc"),
                 ("明朝", "/System/Library/Fonts/ヒラギノ明朝 ProN.ttc"),
                 ("AppleGothic", "/System/Library/Fonts/Supplemental/AppleGothic.ttf"),
+                ("Hiragino Sans GB", "/System/Library/Fonts/Hiragino Sans GB.ttc"),
             ];
             let font_files = FONT_FILES
                 .iter()
@@ -51,10 +51,10 @@ pub(crate) fn find_cjk_fonts() -> Option<Vec<PathBuf>> {
     }
     #[cfg(windows)]
     {
-        // Chinese  c:/Windows/Fonts/msyh.ttc
         // Japanese c:/Windows/Fonts/msgothic.ttc
         // Korean   c:/Windows/Fonts/malgun.ttf
-        static FONT_FILES: [&str; 3] = ["msyh.ttc", "msgothic.ttc", "malgun.ttf"];
+        // Chinese  c:/Windows/Fonts/msyh.ttc
+        static FONT_FILES: [&str; 3] = ["msgothic.ttc", "malgun.ttf", "msyh.ttc"];
 
         let mut font_path = PathBuf::from(std::env::var("SystemRoot").ok()?);
         font_path.push("Fonts");

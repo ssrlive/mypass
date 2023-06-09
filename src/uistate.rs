@@ -1,9 +1,19 @@
 use eframe::egui;
 use std::path::PathBuf;
 
-#[derive(Default, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct Config {
     pub dark_mode: bool,
+    pub show_tree_panel: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            dark_mode: false,
+            show_tree_panel: true,
+        }
+    }
 }
 
 #[derive(Default, Debug)]

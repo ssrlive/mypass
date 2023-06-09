@@ -313,21 +313,23 @@ impl AppUI {
     }
 
     fn render_tree_panel(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let open = &mut self.state.config.show_tree_panel;
-        egui::Window::new("Architecture tree").open(open).show(ctx, |ui| {
-            ui.label("This is a window");
-            ui.separator();
-            let response = ui.add(Label::new("Right-click me!").sense(Sense::click()));
-            response.context_menu(|ui| {
-                if ui.button("Close the menu").clicked() {
-                    ui.close_menu();
-                }
+        egui::Window::new("Architecture tree")
+            .open(&mut self.state.config.show_tree_panel)
+            .vscroll(true)
+            .hscroll(true)
+            .show(ctx, |ui| {
+                let response = ui.add(Label::new("Right-click me!").sense(Sense::click()));
+                response.context_menu(|ui| {
+                    if ui.button("Close the menu").clicked() {
+                        ui.close_menu();
+                    }
+                });
+                ui.separator();
+                // egui::CollapsingHeader::new("Tree")
+                //     .default_open(false)
+                //     .show(ui, |ui| self.tree.ui(ui));
+                self.tree.ui(ui);
             });
-            ui.separator();
-            egui::CollapsingHeader::new("Tree")
-                .default_open(false)
-                .show(ui, |ui| self.tree.ui(ui));
-        });
     }
 }
 

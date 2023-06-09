@@ -3,10 +3,11 @@ use crate::{
     fonts::find_cjk_fonts,
     keepass::KpDb,
     password,
+    tree::Tree,
     uistate::{Config, UiState},
 };
 use eframe::{
-    egui::{self, Hyperlink, Label, RichText, ScrollArea, TopBottomPanel},
+    egui::{self, Hyperlink, Label, RichText, ScrollArea, Sense, TopBottomPanel},
     emath::Align,
 };
 use keepass::db::NodeRef;
@@ -18,6 +19,7 @@ pub const APP_NAME: &str = "mypass";
 pub struct AppUI {
     kpdb: Option<KpDb>,
     state: UiState,
+    tree: Tree,
 }
 
 impl AppUI {
@@ -43,6 +45,7 @@ impl AppUI {
         Self {
             kpdb: block().ok(),
             state,
+            tree: Tree::demo(),
             ..Default::default()
         }
     }
@@ -115,6 +118,20 @@ impl AppUI {
     fn render_top_panel(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.add_space(PADDING);
+            egui::menu::menu_button(ui, "Main", |ui| {
+                let v = ["Hide tree panel", "Show tree panel"];
+                let show = &mut self.state.config.show_tree_panel;
+                let text = if *show { v[0] } else { v[1] };
+                if ui.button(text).clicked() {
+                    *show = !*show;
+                    ui.close_menu();
+                }
+                if ui.button("Quit").clicked() {
+                    frame.close();
+                }
+            });
+            ui.separator();
+
             egui::menu::bar(ui, |ui| {
                 ui.with_layout(egui::Layout::left_to_right(Align::Max), |ui| {
                     let text = RichText::new("🗋").text_style(egui::TextStyle::Heading);
@@ -242,6 +259,7 @@ impl AppUI {
                         };
                         ui.label(text);
                     });
+                    ui.separator();
                     ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
                         if ui.button("Open").clicked() {
                             let (path, password, keyfile) = self.state.on_open_file_dialog_confirm();
@@ -293,6 +311,24 @@ impl AppUI {
             );
         }
     }
+
+    fn render_tree_panel(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let open = &mut self.state.config.show_tree_panel;
+        egui::Window::new("Architecture tree").open(open).show(ctx, |ui| {
+            ui.label("This is a window");
+            ui.separator();
+            let response = ui.add(Label::new("Right-click me!").sense(Sense::click()));
+            response.context_menu(|ui| {
+                if ui.button("Close the menu").clicked() {
+                    ui.close_menu();
+                }
+            });
+            ui.separator();
+            egui::CollapsingHeader::new("Tree")
+                .default_open(false)
+                .show(ui, |ui| self.tree.ui(ui));
+        });
+    }
 }
 
 impl eframe::App for AppUI {
@@ -323,6 +359,7 @@ impl eframe::App for AppUI {
         });
         self.render_confirm_exit_dialog(ctx, frame);
         self.render_open_file_dialog(ctx, frame);
+        self.render_tree_panel(ctx, frame);
 
         Self::render_preview_files_being_dropped(ctx);
         // Collect dropped files

@@ -7,7 +7,7 @@ use crate::{
     uistate::{Config, UiState},
 };
 use eframe::{
-    egui::{self, Hyperlink, Label, RichText, ScrollArea, Sense, TopBottomPanel},
+    egui::{self, Hyperlink, Label, RichText, ScrollArea, TopBottomPanel},
     emath::Align,
 };
 use keepass::db::NodeRef;
@@ -19,7 +19,6 @@ pub const APP_NAME: &str = "mypass";
 pub struct AppUI {
     kpdb: Option<KpDb>,
     state: UiState,
-    tree: Tree,
 }
 
 impl AppUI {
@@ -45,7 +44,6 @@ impl AppUI {
         Self {
             kpdb: block().ok(),
             state,
-            tree: Tree::demo(),
             ..Default::default()
         }
     }
@@ -119,7 +117,7 @@ impl AppUI {
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.add_space(PADDING);
             egui::menu::menu_button(ui, "Main", |ui| {
-                let v = ["Hide tree panel", "Show tree panel"];
+                let v = ["Hide architecture tree", "Show architecture tree"];
                 let show = &mut self.state.config.show_tree_panel;
                 let text = if *show { v[0] } else { v[1] };
                 if ui.button(text).clicked() {
@@ -318,17 +316,12 @@ impl AppUI {
             .vscroll(true)
             .hscroll(true)
             .show(ctx, |ui| {
-                let response = ui.add(Label::new("Right-click me!").sense(Sense::click()));
-                response.context_menu(|ui| {
-                    if ui.button("Close the menu").clicked() {
-                        ui.close_menu();
-                    }
-                });
-                ui.separator();
-                // egui::CollapsingHeader::new("Tree")
-                //     .default_open(false)
-                //     .show(ui, |ui| self.tree.ui(ui));
-                self.tree.ui(ui);
+                let node = self
+                    .kpdb
+                    .as_ref()
+                    .and_then(|kpdb| kpdb.get_root())
+                    .map(|root| NodeRef::Group(root));
+                Tree::default().ui(ui, &node);
             });
     }
 }

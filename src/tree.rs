@@ -1,17 +1,11 @@
 use eframe::egui::{self, Label, Sense};
 use keepass::db::NodeRef;
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum Action {
-    Keep,
-    _Delete,
-}
-
 #[derive(Debug, Default)]
 pub(crate) struct Tree;
 
 impl Tree {
-    pub fn ui(&mut self, ui: &mut egui::Ui, node: &Option<NodeRef<'_>>) -> Action {
+    pub fn ui(&mut self, ui: &mut egui::Ui, node: &Option<NodeRef<'_>>) {
         self.ui_impl(ui, 0, node)
     }
 
@@ -24,7 +18,7 @@ impl Tree {
 }
 
 impl Tree {
-    fn ui_impl(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) -> Action {
+    fn ui_impl(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) {
         let title = node
             .as_ref()
             .and_then(|node| match node {
@@ -48,7 +42,7 @@ impl Tree {
                     }
                 }
             });
-            response.body_returned.unwrap_or(Action::Keep)
+            response.body_returned.unwrap_or(())
         } else {
             let response = ui.add(Label::new(title).sense(Sense::click()));
             response.context_menu(|ui| {
@@ -60,11 +54,10 @@ impl Tree {
                     ui.close_menu();
                 }
             });
-            Action::Keep
         }
     }
 
-    fn children_ui(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) -> Action {
+    fn children_ui(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) {
         if let Some(node) = node {
             match node {
                 NodeRef::Group(g) => {
@@ -75,6 +68,5 @@ impl Tree {
                 NodeRef::Entry(_) => {}
             }
         }
-        Action::Keep
     }
 }

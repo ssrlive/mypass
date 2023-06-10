@@ -1,62 +1,80 @@
-use eframe::egui;
+use eframe::egui::{self, Label, Sense};
+use keepass::db::NodeRef;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Action {
     Keep,
-    Delete,
+    _Delete,
 }
 
-#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
-pub(crate) struct Tree(Vec<Tree>);
+#[derive(Debug, Default)]
+pub(crate) struct Tree;
 
 impl Tree {
-    pub fn demo() -> Self {
-        Self(vec![
-            Tree(vec![Tree::default(); 4]),
-            Tree(vec![Tree(vec![Tree::default(); 2]); 3]),
-        ])
+    pub fn ui(&mut self, ui: &mut egui::Ui, node: &Option<NodeRef<'_>>) -> Action {
+        self.ui_impl(ui, 0, node)
     }
 
-    pub fn ui(&mut self, ui: &mut egui::Ui) -> Action {
-        self.ui_impl(ui, 0, "root")
-    }
-}
-
-impl Tree {
-    fn ui_impl(&mut self, ui: &mut egui::Ui, depth: usize, name: &str) -> Action {
-        egui::CollapsingHeader::new(name)
-            .default_open(depth < 1)
-            .show(ui, |ui| self.children_ui(ui, depth))
-            .body_returned
-            .unwrap_or(Action::Keep)
-    }
-
-    fn children_ui(&mut self, ui: &mut egui::Ui, depth: usize) -> Action {
-        if depth > 0
-            && ui
-                .button(egui::RichText::new("delete").color(ui.visuals().warn_fg_color))
-                .clicked()
-        {
-            return Action::Delete;
+    pub fn is_group(&self, node: &NodeRef<'_>) -> bool {
+        match node {
+            NodeRef::Group(_) => true,
+            NodeRef::Entry(_) => false,
         }
+    }
+}
 
-        self.0 = std::mem::take(self)
-            .0
-            .into_iter()
-            .enumerate()
-            .filter_map(|(i, mut tree)| {
-                if tree.ui_impl(ui, depth + 1, &format!("child #{}", i)) == Action::Keep {
-                    Some(tree)
-                } else {
-                    None
-                }
+impl Tree {
+    fn ui_impl(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) -> Action {
+        let title = node
+            .as_ref()
+            .and_then(|node| match node {
+                NodeRef::Group(g) => Some(g.name.as_str()),
+                NodeRef::Entry(e) => e.get_title(),
             })
-            .collect();
+            .unwrap_or("(no title)");
 
-        if ui.button("+").clicked() {
-            self.0.push(Tree::default());
+        if node.as_ref().map(|node| self.is_group(node)).unwrap_or(false) {
+            let response = egui::CollapsingHeader::new(title)
+                .default_open(depth < 1)
+                .show(ui, |ui| self.children_ui(ui, depth, node));
+            response.header_response.context_menu(|ui| {
+                if ui.button("Show details").clicked() {
+                    ui.close_menu();
+                }
+                if depth > 0 {
+                    let del = egui::RichText::new("Delete").color(ui.visuals().warn_fg_color);
+                    if ui.button(del).clicked() {
+                        ui.close_menu();
+                    }
+                }
+            });
+            response.body_returned.unwrap_or(Action::Keep)
+        } else {
+            let response = ui.add(Label::new(title).sense(Sense::click()));
+            response.context_menu(|ui| {
+                if ui.button("Show details").clicked() {
+                    ui.close_menu();
+                }
+                let del = egui::RichText::new("Delete").color(ui.visuals().warn_fg_color);
+                if ui.button(del).clicked() {
+                    ui.close_menu();
+                }
+            });
+            Action::Keep
         }
+    }
 
+    fn children_ui(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) -> Action {
+        if let Some(node) = node {
+            match node {
+                NodeRef::Group(g) => {
+                    g.children.iter().for_each(|node| {
+                        self.ui_impl(ui, depth + 1, &Some(node.into()));
+                    });
+                }
+                NodeRef::Entry(_) => {}
+            }
+        }
         Action::Keep
     }
 }

@@ -16,14 +16,16 @@ impl Tree {
 
 impl Tree {
     fn ui_impl(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) {
-        let title = node
-            .as_ref()
-            .and_then(|node| match node {
-                NodeRef::Group(g) => Some(g.name.as_str()),
-                NodeRef::Entry(e) => e.get_title(),
-            })
-            .unwrap_or("(no title)");
-
+        let title = if depth == 0 && node.is_none() {
+            "No keepass database loaded"
+        } else {
+            node.as_ref()
+                .and_then(|node| match node {
+                    NodeRef::Group(g) => Some(g.name.as_str()),
+                    NodeRef::Entry(e) => e.get_title(),
+                })
+                .unwrap_or("(no title)")
+        };
         if node.as_ref().map(|node| self.is_group(node)).unwrap_or(false) {
             let response = egui::CollapsingHeader::new(title)
                 .default_open(depth < 1)

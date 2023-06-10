@@ -33,9 +33,9 @@ impl AppUI {
         state.config = config;
 
         let block = || {
-            let db_path = dotenvy::var("DB_PATH")?;
-            let password = dotenvy::var("PASSWORD").ok();
-            let key_file = dotenvy::var("KEY_FILE").ok();
+            let db_path = std::env::var("DB_PATH")?;
+            let password = std::env::var("PASSWORD").ok();
+            let key_file = std::env::var("KEY_FILE").ok();
 
             let kpdb = KpDb::open(&db_path, password.as_deref(), key_file.as_deref())?;
             Ok::<KpDb, Error>(kpdb)

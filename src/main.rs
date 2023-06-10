@@ -7,7 +7,7 @@ use mypass::{
 
 fn main() {
     let block = || {
-        _ = dotenvy::dotenv();
+        dotenvy::dotenv().ok();
 
         let verbose = true;
         let log_level = if verbose { "trace" } else { "info" };

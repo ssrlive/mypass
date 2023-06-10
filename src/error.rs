@@ -14,6 +14,9 @@ pub enum Error {
 
     #[error("dotenvy::Error: {0}")]
     DotenvyError(#[from] dotenvy::Error),
+
+    #[error("std::env::VarError: {0}")]
+    StdEnvVarError(#[from] std::env::VarError),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

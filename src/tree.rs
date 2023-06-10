@@ -10,10 +10,7 @@ impl Tree {
     }
 
     pub fn is_group(&self, node: &NodeRef<'_>) -> bool {
-        match node {
-            NodeRef::Group(_) => true,
-            NodeRef::Entry(_) => false,
-        }
+        matches!(node, NodeRef::Group(_))
     }
 }
 
@@ -33,13 +30,23 @@ impl Tree {
                 .show(ui, |ui| self.children_ui(ui, depth, node));
             response.header_response.context_menu(|ui| {
                 if ui.button("Show details").clicked() {
+                    log::info!("Show group {title} details");
                     ui.close_menu();
                 }
                 if depth > 0 {
                     let del = egui::RichText::new("Delete").color(ui.visuals().warn_fg_color);
                     if ui.button(del).clicked() {
+                        log::info!("Delete group {title}");
                         ui.close_menu();
                     }
+                }
+                if ui.button("Create new entry").clicked() {
+                    log::info!("Create new entry in {title}");
+                    ui.close_menu();
+                }
+                if ui.button("Create new group").clicked() {
+                    log::info!("Create new group in {title}");
+                    ui.close_menu();
                 }
             });
             response.body_returned.unwrap_or(())
@@ -47,10 +54,12 @@ impl Tree {
             let response = ui.add(Label::new(title).sense(Sense::click()));
             response.context_menu(|ui| {
                 if ui.button("Show details").clicked() {
+                    log::info!("Show entry details {title}");
                     ui.close_menu();
                 }
                 let del = egui::RichText::new("Delete").color(ui.visuals().warn_fg_color);
                 if ui.button(del).clicked() {
+                    log::info!("Delete entry {title}");
                     ui.close_menu();
                 }
             });
@@ -59,13 +68,10 @@ impl Tree {
 
     fn children_ui(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) {
         if let Some(node) = node {
-            match node {
-                NodeRef::Group(g) => {
-                    g.children.iter().for_each(|node| {
-                        self.ui_impl(ui, depth + 1, &Some(node.into()));
-                    });
-                }
-                NodeRef::Entry(_) => {}
+            if let NodeRef::Group(group) = node {
+                group.children.iter().for_each(|node| {
+                    self.ui_impl(ui, depth + 1, &Some(node.into()));
+                });
             }
         }
     }

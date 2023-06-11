@@ -17,7 +17,7 @@ pub(crate) fn find_cjk_fonts() -> Option<Vec<PathBuf>> {
             ];
             let font_files = FONT_FILES
                 .iter()
-                .map(|(font_name, def_font_path)| {
+                .filter_map(|(font_name, def_font_path)| {
                     let font_line = stdout
                         .lines()
                         .find(|line| line.contains("Regular") && line.contains(font_name))
@@ -30,7 +30,6 @@ pub(crate) fn find_cjk_fonts() -> Option<Vec<PathBuf>> {
                         None
                     }
                 })
-                .flatten()
                 .collect::<Vec<_>>();
             Some(font_files)
         }

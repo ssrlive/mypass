@@ -6,10 +6,10 @@ pub fn is_group(node: &NodeRef<'_>) -> bool {
     matches!(node, NodeRef::Group(_))
 }
 
-pub fn get_uuid(node: &NodeRef<'_>) -> uuid::Uuid {
+pub fn get_uuid<'a>(node: &NodeRef<'a>) -> &'a uuid::Uuid {
     match node {
-        NodeRef::Group(g) => g.uuid,
-        NodeRef::Entry(e) => e.get_uuid().clone(),
+        NodeRef::Group(g) => &g.uuid,
+        NodeRef::Entry(e) => e.get_uuid(),
     }
 }
 
@@ -20,7 +20,7 @@ pub fn get_title<'a>(node: &NodeRef<'a>) -> Option<&'a str> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct KpDb {
     pub db: Option<Database>,
     pub db_path: Option<String>,
@@ -28,15 +28,24 @@ pub struct KpDb {
     pub key_file: Option<String>,
 }
 
+impl Default for KpDb {
+    fn default() -> Self {
+        Self {
+            db: Some(Database::new(DatabaseConfig::default())),
+            db_path: None,
+            password: None,
+            key_file: None,
+        }
+    }
+}
+
 impl KpDb {
     pub fn new() -> Self {
-        let mut kpdb = Self::default();
-        kpdb.db = Some(Database::new(DatabaseConfig::default()));
-        kpdb
+        Self::default()
     }
 
     pub fn open(db_path: &str, password: Option<&str>, key_file: Option<&str>) -> Result<Self> {
-        let mut kpdb = Self::default();
+        let mut kpdb = Self::new();
         kpdb.db_path = Some(db_path.to_string());
         kpdb.password = password.map(|s| s.to_string());
         kpdb.key_file = key_file.map(|s| s.to_string());
@@ -95,9 +104,9 @@ impl KpDb {
         self.get_root().and_then(|root| root.get(path))
     }
 
-    pub fn get_node_by_id(&self, id: uuid::Uuid) -> Option<db::NodeRef> {
+    pub fn get_node_by_id(&self, id: &uuid::Uuid) -> Option<db::NodeRef> {
         self.get_root()
-            .and_then(|root| root.into_iter().find(|node| get_uuid(&node) == id))
+            .and_then(|root| root.into_iter().find(|node| get_uuid(node) == id))
     }
 }
 

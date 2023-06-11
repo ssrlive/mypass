@@ -35,6 +35,10 @@ pub(crate) struct UiState {
 }
 
 impl UiState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     pub fn on_show_open_file_dialog(&mut self) {
         self.show_open_file_dialog = true;
         self.show_confirm_quit_dialog = false;

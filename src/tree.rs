@@ -27,7 +27,7 @@ impl Tree {
 
 impl Tree {
     fn ui_impl(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) {
-        let node_uuid: Option<uuid::Uuid> = node.as_ref().and_then(|node| Some(get_uuid(node)));
+        let node_uuid = node.as_ref().map(get_uuid).copied();
         let title = if depth == 0 && node.is_none() {
             "No keepass database loaded"
         } else {
@@ -38,32 +38,32 @@ impl Tree {
                 })
                 .unwrap_or("(no title)")
         };
-        if node.as_ref().map(|node| is_group(node)).unwrap_or(false) {
+        if node.as_ref().map(is_group).unwrap_or(false) {
             let response = egui::CollapsingHeader::new(title)
                 .default_open(depth < 1)
                 .show(ui, |ui| self.children_ui(ui, depth, node));
             response.header_response.context_menu(|ui| {
                 if ui.button("Show details").clicked() {
                     log::info!("Show group {title} details");
-                    self.event = node_uuid.map(|uuid| TreeEvent::NodeSelected(uuid));
+                    self.event = node_uuid.map(TreeEvent::NodeSelected);
                     ui.close_menu();
                 }
                 if depth > 0 {
                     let del = egui::RichText::new("Delete").color(ui.visuals().warn_fg_color);
                     if ui.button(del).clicked() {
                         log::info!("Delete group {title}");
-                        self.event = node_uuid.map(|uuid| TreeEvent::NodeDeleted(uuid));
+                        self.event = node_uuid.map(TreeEvent::NodeDeleted);
                         ui.close_menu();
                     }
                 }
                 if ui.button("Create new entry").clicked() {
                     log::info!("Create new entry in {title}");
-                    self.event = node_uuid.map(|uuid| TreeEvent::EntryCreated(uuid));
+                    self.event = node_uuid.map(TreeEvent::EntryCreated);
                     ui.close_menu();
                 }
                 if ui.button("Create new group").clicked() {
                     log::info!("Create new group in {title}");
-                    self.event = node_uuid.map(|uuid| TreeEvent::GroupCreated(uuid));
+                    self.event = node_uuid.map(TreeEvent::GroupCreated);
                     ui.close_menu();
                 }
             });
@@ -72,29 +72,27 @@ impl Tree {
             let response = ui.button(title).context_menu(|ui| {
                 if ui.button("Show details").clicked() {
                     log::info!("Show entry details {title}");
-                    self.event = node_uuid.map(|uuid| TreeEvent::NodeSelected(uuid));
+                    self.event = node_uuid.map(TreeEvent::NodeSelected);
                     ui.close_menu();
                 }
                 let del = egui::RichText::new("Delete").color(ui.visuals().warn_fg_color);
                 if ui.button(del).clicked() {
                     log::info!("Delete entry {title}");
-                    self.event = node_uuid.map(|uuid| TreeEvent::NodeDeleted(uuid));
+                    self.event = node_uuid.map(TreeEvent::NodeDeleted);
                     ui.close_menu();
                 }
             });
             if response.clicked() {
-                self.event = node_uuid.map(|uuid| TreeEvent::NodeSelected(uuid));
+                self.event = node_uuid.map(TreeEvent::NodeSelected);
             }
         }
     }
 
     fn children_ui(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) {
-        if let Some(node) = node {
-            if let NodeRef::Group(group) = node {
-                group.children.iter().for_each(|node| {
-                    self.ui_impl(ui, depth + 1, &Some(node.into()));
-                });
-            }
+        if let Some(NodeRef::Group(group)) = node {
+            group.children.iter().for_each(|node| {
+                self.ui_impl(ui, depth + 1, &Some(node.into()));
+            });
         }
     }
 }

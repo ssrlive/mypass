@@ -3,8 +3,8 @@ use crate::{
     fonts::find_cjk_fonts,
     keepass::KpDb,
     password,
-    tree::{Tree, TreeEvent},
     uistate::{Config, UiState},
+    uitree::{TreeEvent, UiTree},
 };
 use eframe::{
     egui::{self, Hyperlink, Label, RichText, ScrollArea, TopBottomPanel},
@@ -19,7 +19,7 @@ pub const APP_NAME: &str = "mypass";
 pub struct AppUI {
     kpdb: Option<KpDb>,
     state: UiState,
-    tree: Tree,
+    uitree: UiTree,
 }
 
 impl AppUI {
@@ -271,7 +271,7 @@ impl AppUI {
             .hscroll(true)
             .show(ctx, |ui| {
                 let node = self.kpdb.as_ref().and_then(|kpdb| kpdb.get_root()).map(NodeRef::Group);
-                self.tree.ui(ui, &node);
+                self.uitree.ui(ui, &node);
             });
     }
 
@@ -294,7 +294,7 @@ impl AppUI {
     }
 
     fn db_events_handler(&mut self) {
-        if let Some(event) = self.tree.peek_event() {
+        if let Some(event) = self.uitree.peek_event() {
             match event {
                 TreeEvent::NodeSelected(node) => {
                     self.state.show_details_panel = true;

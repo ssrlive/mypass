@@ -11,11 +11,11 @@ pub(crate) enum TreeEvent {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct Tree {
+pub(crate) struct UiTree {
     pub event: Option<TreeEvent>,
 }
 
-impl Tree {
+impl UiTree {
     pub fn ui(&mut self, ui: &mut egui::Ui, node: &Option<NodeRef<'_>>) {
         self.ui_impl(ui, 0, node)
     }
@@ -25,7 +25,7 @@ impl Tree {
     }
 }
 
-impl Tree {
+impl UiTree {
     fn ui_impl(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) {
         let node_uuid = node.as_ref().map(get_uuid).copied();
         let title = if depth == 0 && node.is_none() {

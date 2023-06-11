@@ -76,6 +76,18 @@ impl KpDb {
         Ok(db_key)
     }
 
+    pub fn delete_node(&mut self, id: &uuid::Uuid) -> Result<()> {
+        let db = self.db.as_mut().ok_or("No database")?;
+        let root = &mut db.root;
+        let _node = root
+            .into_iter()
+            .find(|node| get_uuid(node) == id)
+            .ok_or("Node not found")?;
+        log::error!("TODO: removing node \"{id}\" from db is not implemented");
+        // root.remove(_node)?;
+        Ok(())
+    }
+
     pub fn get_root(&self) -> Option<&db::Group> {
         self.db.as_ref().map(|db| &db.root)
     }

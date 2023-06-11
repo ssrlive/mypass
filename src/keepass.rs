@@ -2,6 +2,24 @@ use crate::error::Result;
 use keepass::{config::DatabaseConfig, db, db::NodeRef, Database, DatabaseKey};
 use std::fs::File;
 
+pub fn is_group(node: &NodeRef<'_>) -> bool {
+    matches!(node, NodeRef::Group(_))
+}
+
+pub fn get_uuid(node: &NodeRef<'_>) -> uuid::Uuid {
+    match node {
+        NodeRef::Group(g) => g.uuid,
+        NodeRef::Entry(e) => e.get_uuid().clone(),
+    }
+}
+
+pub fn get_title<'a>(node: &NodeRef<'a>) -> Option<&'a str> {
+    match node {
+        NodeRef::Group(g) => Some(g.name.as_str()),
+        NodeRef::Entry(e) => e.get_title(),
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct KpDb {
     pub db: Option<Database>,
@@ -75,6 +93,11 @@ impl KpDb {
 
     pub fn get_item(&self, path: &[&str]) -> Option<db::NodeRef> {
         self.get_root().and_then(|root| root.get(path))
+    }
+
+    pub fn get_node_by_id(&self, id: uuid::Uuid) -> Option<db::NodeRef> {
+        self.get_root()
+            .and_then(|root| root.into_iter().find(|node| get_uuid(&node) == id))
     }
 }
 

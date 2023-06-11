@@ -28,6 +28,9 @@ pub(crate) struct UiState {
 
     pub dropped_files: Vec<egui::DroppedFile>,
 
+    pub show_details_panel: bool,
+    pub current_node_id: Option<uuid::Uuid>,
+
     pub config: Config,
 }
 

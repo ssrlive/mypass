@@ -19,6 +19,7 @@ pub const APP_NAME: &str = "mypass";
 pub struct AppUI {
     kpdb: Option<KpDb>,
     state: UiState,
+    tree: Tree,
 }
 
 impl AppUI {
@@ -68,49 +69,6 @@ impl AppUI {
         let font_family = eframe::epaint::FontFamily::Proportional;
         font_def.families.get_mut(&font_family)?.insert(0, font_name);
         Some(())
-    }
-
-    fn render_kp_node_details(&mut self, ui: &mut egui::Ui) {
-        if let Some(kpdb) = &self.kpdb {
-            if let Some(root) = kpdb.get_root() {
-                for node in root {
-                    self.render_kp_node(ui, node);
-                }
-            }
-        }
-    }
-
-    fn render_kp_node(&self, ui: &mut egui::Ui, node: NodeRef) {
-        ui.separator();
-        ui.add_space(PADDING);
-        match node {
-            NodeRef::Group(g) => {
-                ui.horizontal(|ui| {
-                    ui.label("Group");
-                    ui.label(g.uuid.to_string());
-                });
-                ui.label(g.name.clone());
-            }
-            NodeRef::Entry(entry) => {
-                ui.horizontal(|ui| {
-                    ui.label("Entry");
-                    ui.label(entry.uuid.to_string());
-                    ui.with_layout(egui::Layout::right_to_left(Align::Max), |ui| {
-                        ui.add(egui::Hyperlink::new("https://www.rust-lang.org/"));
-                    });
-                });
-                ui.label(entry.get_title().unwrap_or("(no title)"));
-                ui.label(entry.get_username().unwrap_or("(no username)"));
-                ui.label(entry.get_password().unwrap_or("(no password)"));
-                ui.horizontal(|ui| {
-                    ui.label("URL");
-                    if let Some(url) = entry.get_url() {
-                        ui.add(egui::Hyperlink::new(url));
-                    }
-                });
-            }
-        }
-        ui.add_space(PADDING);
     }
 
     fn render_top_panel(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
@@ -318,8 +276,26 @@ impl AppUI {
                     .as_ref()
                     .and_then(|kpdb| kpdb.get_root())
                     .map(|root| NodeRef::Group(root));
-                Tree::default().ui(ui, &node);
+                self.tree.ui(ui, &node);
             });
+    }
+
+    fn render_kp_node_details_panel(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) -> Option<()> {
+        let node = self
+            .state
+            .current_node_id
+            .and_then(|id| self.kpdb.as_ref().and_then(|kpdb| kpdb.get_node_by_id(id)))?;
+        let title = crate::keepass::get_title(&node).unwrap_or("(no title)");
+
+        egui::Window::new(title)
+            .open(&mut self.state.show_details_panel)
+            .vscroll(true)
+            .hscroll(true)
+            .show(ctx, |ui| {
+                ui.label(title);
+                ui.label(format!("{:?}", node));
+            });
+        Some(())
     }
 }
 
@@ -344,13 +320,21 @@ impl eframe::App for AppUI {
         self.render_top_panel(ctx, frame);
         self.render_footer(ctx);
         egui::CentralPanel::default().show(ctx, |ui| {
-            ScrollArea::vertical().show(ui, |ui| {
-                self.render_kp_node_details(ui);
-            });
+            ScrollArea::vertical().show(ui, |_: &mut egui::Ui| {});
         });
         self.render_confirm_exit_dialog(ctx, frame);
         self.render_open_file_dialog(ctx, frame);
         self.render_tree_panel(ctx, frame);
+
+        self.tree.peek_event().map(|event| match event {
+            crate::tree::TreeEvent::NodeSelected(node) => {
+                self.state.show_details_panel = true;
+                self.state.current_node_id = Some(node);
+            }
+            _ => {}
+        });
+
+        self.render_kp_node_details_panel(ctx, frame);
 
         Self::render_preview_files_being_dropped(ctx);
         // Collect dropped files

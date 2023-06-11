@@ -30,7 +30,7 @@ impl AppUI {
             .and_then(|storage| storage.get_string(APP_NAME))
             .and_then(|cfg| serde_json::from_str::<Config>(&cfg).ok())
             .unwrap_or_default();
-        let mut state = UiState::default();
+        let mut state = UiState::new();
         state.config = config;
 
         let block = || {
@@ -174,8 +174,7 @@ impl AppUI {
             let size = frame.info().window_info.size;
             let pos = egui::Pos2::new(size.x / 3.0, size.y / 3.0);
 
-            let title = format!("Open keepass file");
-            egui::Window::new(title)
+            egui::Window::new("Open keepass file")
                 .collapsible(false)
                 .resizable(true)
                 .default_pos(pos)
@@ -219,7 +218,7 @@ impl AppUI {
                             if let Some(path) = path {
                                 let path = path.to_str().unwrap_or("Invalid path");
                                 let password = if password.is_empty() { None } else { Some(password) };
-                                let keyfile = keyfile.as_ref().and_then(|p| p.to_str().and_then(|p| Some(p)));
+                                let keyfile = keyfile.as_ref().and_then(|p| p.to_str());
                                 self.kpdb = KpDb::open(path, password.as_deref(), keyfile).ok();
                             }
                         }
@@ -271,11 +270,7 @@ impl AppUI {
             .vscroll(true)
             .hscroll(true)
             .show(ctx, |ui| {
-                let node = self
-                    .kpdb
-                    .as_ref()
-                    .and_then(|kpdb| kpdb.get_root())
-                    .map(|root| NodeRef::Group(root));
+                let node = self.kpdb.as_ref().and_then(|kpdb| kpdb.get_root()).map(NodeRef::Group);
                 self.tree.ui(ui, &node);
             });
     }
@@ -284,7 +279,7 @@ impl AppUI {
         let node = self
             .state
             .current_node_id
-            .and_then(|id| self.kpdb.as_ref().and_then(|kpdb| kpdb.get_node_by_id(id)))?;
+            .and_then(|id| self.kpdb.as_ref().and_then(|kpdb| kpdb.get_node_by_id(&id)))?;
         let title = crate::keepass::get_title(&node).unwrap_or("(no title)");
 
         egui::Window::new(title)
@@ -326,13 +321,20 @@ impl eframe::App for AppUI {
         self.render_open_file_dialog(ctx, frame);
         self.render_tree_panel(ctx, frame);
 
-        self.tree.peek_event().map(|event| match event {
-            crate::tree::TreeEvent::NodeSelected(node) => {
-                self.state.show_details_panel = true;
-                self.state.current_node_id = Some(node);
+        if let Some(event) = self.tree.peek_event() {
+            match event {
+                crate::tree::TreeEvent::NodeSelected(node) => {
+                    self.state.show_details_panel = true;
+                    self.state.current_node_id = Some(node);
+                }
+                crate::tree::TreeEvent::NodeDeleted(_id) => {
+                    self.state.show_details_panel = false;
+                    self.state.current_node_id = None;
+                    // self.kpdb.as_mut().map(|kpdb| kpdb.delete_node(&_id));
+                }
+                _ => {}
             }
-            _ => {}
-        });
+        }
 
         self.render_kp_node_details_panel(ctx, frame);
 

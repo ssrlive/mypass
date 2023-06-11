@@ -56,6 +56,9 @@ jobs:
         command: fmt
         args: --all -- --check
 
+    - name: Clippy
+      run: cargo clippy --all-features -- -D warnings
+  
     - name: check --all-features
       uses: actions-rs/cargo@v1
       with:

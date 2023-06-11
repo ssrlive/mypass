@@ -1,5 +1,5 @@
 use crate::keepass::{get_uuid, is_group};
-use eframe::egui::{self, Label, Sense};
+use eframe::egui;
 use keepass::db::NodeRef;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -69,8 +69,7 @@ impl Tree {
             });
             response.body_returned.unwrap_or(())
         } else {
-            let response = ui.add(Label::new(title).sense(Sense::click()));
-            response.context_menu(|ui| {
+            let response = ui.button(title).context_menu(|ui| {
                 if ui.button("Show details").clicked() {
                     log::info!("Show entry details {title}");
                     self.event = node_uuid.map(|uuid| TreeEvent::NodeSelected(uuid));
@@ -83,6 +82,9 @@ impl Tree {
                     ui.close_menu();
                 }
             });
+            if response.clicked() {
+                self.event = node_uuid.map(|uuid| TreeEvent::NodeSelected(uuid));
+            }
         }
     }
 

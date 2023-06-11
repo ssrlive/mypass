@@ -70,7 +70,7 @@ impl AppUI {
         Some(())
     }
 
-    fn render_kp_items(&mut self, ui: &mut egui::Ui) {
+    fn render_kp_node_details(&mut self, ui: &mut egui::Ui) {
         if let Some(kpdb) = &self.kpdb {
             if let Some(root) = kpdb.get_root() {
                 for node in root {
@@ -116,16 +116,23 @@ impl AppUI {
     fn render_top_panel(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.add_space(PADDING);
-            egui::menu::menu_button(ui, "Main", |ui| {
-                let v = ["Hide architecture tree", "Show architecture tree"];
-                let show = &mut self.state.config.show_tree_panel;
-                let text = if *show { v[0] } else { v[1] };
-                if ui.button(text).clicked() {
-                    *show = !*show;
-                    ui.close_menu();
-                }
-                if ui.button("Quit").clicked() {
-                    frame.close();
+            ui.horizontal(|ui| {
+                egui::menu::menu_button(ui, "Main", |ui| {
+                    let v = ["Hide architecture", "Show architecture"];
+                    let show = &mut self.state.config.show_tree_panel;
+                    let text = if *show { v[0] } else { v[1] };
+                    if ui.button(text).clicked() {
+                        *show = !*show;
+                        ui.close_menu();
+                    }
+                    if ui.button("Quit").clicked() {
+                        frame.close();
+                    }
+                });
+                if let Some(ref file_path) = self.kpdb.as_ref().and_then(|kpdb| kpdb.db_path.clone()) {
+                    ui.vertical_centered(|ui| {
+                        ui.label(file_path);
+                    });
                 }
             });
             ui.separator();
@@ -161,16 +168,6 @@ impl AppUI {
             });
             ui.add_space(PADDING);
         });
-    }
-
-    fn render_header(&self, ui: &mut egui::Ui) {
-        let file_path = self.kpdb.as_ref().and_then(|kpdb| kpdb.db_path.clone());
-        ui.vertical_centered(|ui| {
-            ui.heading("KeePass items");
-            ui.label(&file_path.unwrap_or_else(|| "No file".to_string()));
-        });
-        ui.add_space(PADDING);
-        // ui.add(Separator::default().spacing(20.0));
     }
 
     fn render_footer(&self, ctx: &egui::Context) {
@@ -347,9 +344,8 @@ impl eframe::App for AppUI {
         self.render_top_panel(ctx, frame);
         self.render_footer(ctx);
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.render_header(ui);
             ScrollArea::vertical().show(ui, |ui| {
-                self.render_kp_items(ui);
+                self.render_kp_node_details(ui);
             });
         });
         self.render_confirm_exit_dialog(ctx, frame);

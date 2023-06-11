@@ -275,15 +275,20 @@ impl AppUI {
             });
     }
 
-    fn render_kp_node_details_panel(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) -> Option<()> {
+    fn render_kp_node_details_panel(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) -> Option<()> {
         let node = self
             .state
             .current_node_id
             .and_then(|id| self.kpdb.as_ref().and_then(|kpdb| kpdb.get_node_by_id(&id)))?;
         let title = crate::keepass::get_title(&node).unwrap_or("(no title)");
 
+        let size = frame.info().window_info.size;
+        let pos = egui::Pos2::new(size.x * 0.3, size.y / 5.0);
+
         egui::Window::new(title)
             .open(&mut self.state.show_details_panel)
+            .default_pos(pos)
+            .default_width(size.x / 2.0)
             .vscroll(true)
             .hscroll(true)
             .show(ctx, |ui| {

@@ -1,12 +1,12 @@
 use crate::error::Result;
-use keepass::{config::DatabaseConfig, db, db::NodeRef, Database, DatabaseKey};
+use keepass::{config::DatabaseConfig, db, db::NodeRef, Database, DatabaseKey, Uuid};
 use std::fs::File;
 
 pub fn is_group(node: &NodeRef<'_>) -> bool {
     matches!(node, NodeRef::Group(_))
 }
 
-pub fn get_uuid<'a>(node: &NodeRef<'a>) -> &'a uuid::Uuid {
+pub fn get_uuid<'a>(node: &NodeRef<'a>) -> &'a Uuid {
     match node {
         NodeRef::Group(g) => &g.uuid,
         NodeRef::Entry(e) => e.get_uuid(),
@@ -76,7 +76,7 @@ impl KpDb {
         Ok(db_key)
     }
 
-    pub fn delete_node(&mut self, id: &uuid::Uuid) -> Result<()> {
+    pub fn delete_node(&mut self, id: &Uuid) -> Result<()> {
         let db = self.db.as_mut().ok_or("No database")?;
         let root = &mut db.root;
         let _node = root
@@ -116,7 +116,7 @@ impl KpDb {
         self.get_root().and_then(|root| root.get(path))
     }
 
-    pub fn get_node_by_id(&self, id: &uuid::Uuid) -> Option<db::NodeRef> {
+    pub fn get_node_by_id(&self, id: &Uuid) -> Option<db::NodeRef> {
         self.get_root()
             .and_then(|root| root.into_iter().find(|node| get_uuid(node) == id))
     }

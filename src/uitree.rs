@@ -1,13 +1,13 @@
 use crate::keepass::{get_uuid, is_group};
 use eframe::egui;
-use keepass::db::NodeRef;
+use keepass::{db::NodeRef, Uuid};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum TreeEvent {
-    NodeSelected(uuid::Uuid),
-    NodeDeleted(uuid::Uuid),
-    EntryCreated(uuid::Uuid),
-    GroupCreated(uuid::Uuid),
+    NodeSelected(Uuid),
+    NodeDeleted(Uuid),
+    EntryCreated(Uuid),
+    GroupCreated(Uuid),
 }
 
 #[derive(Debug, Default)]

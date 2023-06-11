@@ -1,4 +1,5 @@
 use eframe::egui;
+use keepass::Uuid;
 use std::path::PathBuf;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -29,7 +30,7 @@ pub(crate) struct UiState {
     pub dropped_files: Vec<egui::DroppedFile>,
 
     pub show_details_panel: bool,
-    pub current_node_id: Option<uuid::Uuid>,
+    pub current_node_id: Option<Uuid>,
 
     pub config: Config,
 }

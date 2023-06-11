@@ -3,7 +3,7 @@ use crate::{
     fonts::find_cjk_fonts,
     keepass::KpDb,
     password,
-    tree::Tree,
+    tree::{Tree, TreeEvent},
     uistate::{Config, UiState},
 };
 use eframe::{
@@ -292,6 +292,23 @@ impl AppUI {
             });
         Some(())
     }
+
+    fn db_events_handler(&mut self) {
+        if let Some(event) = self.tree.peek_event() {
+            match event {
+                TreeEvent::NodeSelected(node) => {
+                    self.state.show_details_panel = true;
+                    self.state.current_node_id = Some(node);
+                }
+                TreeEvent::NodeDeleted(id) => {
+                    self.state.show_details_panel = false;
+                    self.state.current_node_id = None;
+                    self.kpdb.as_mut().map(|kpdb| kpdb.delete_node(&id));
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 impl eframe::App for AppUI {
@@ -321,20 +338,7 @@ impl eframe::App for AppUI {
         self.render_open_file_dialog(ctx, frame);
         self.render_tree_panel(ctx, frame);
 
-        if let Some(event) = self.tree.peek_event() {
-            match event {
-                crate::tree::TreeEvent::NodeSelected(node) => {
-                    self.state.show_details_panel = true;
-                    self.state.current_node_id = Some(node);
-                }
-                crate::tree::TreeEvent::NodeDeleted(_id) => {
-                    self.state.show_details_panel = false;
-                    self.state.current_node_id = None;
-                    // self.kpdb.as_mut().map(|kpdb| kpdb.delete_node(&_id));
-                }
-                _ => {}
-            }
-        }
+        self.db_events_handler();
 
         self.render_kp_node_details_panel(ctx, frame);
 

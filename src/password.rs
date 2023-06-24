@@ -38,10 +38,7 @@ pub fn password_ui(ui: &mut egui::Ui, password: &mut String) -> egui::Response {
         }
 
         // Show the password field:
-        ui.add_sized(
-            ui.available_size(),
-            egui::TextEdit::singleline(password).password(!show_plaintext),
-        );
+        ui.add_sized(ui.available_size(), egui::TextEdit::singleline(password).password(!show_plaintext));
     });
 
     // Store the (possibly changed) state:

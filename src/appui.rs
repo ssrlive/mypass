@@ -10,7 +10,6 @@ use eframe::{
     egui::{self, Hyperlink, Label, RichText, ScrollArea, TopBottomPanel},
     emath::Align,
 };
-use keepass::db::NodeRef;
 
 const PADDING: f32 = 1.0;
 pub const APP_NAME: &str = "mypass";
@@ -133,10 +132,7 @@ impl AppUI {
             ui.vertical_centered(|ui: &mut egui::Ui| {
                 ui.add_space(PADDING);
                 ui.add(Label::new("This is a footer").wrap(false));
-                ui.add(Hyperlink::from_label_and_url(
-                    "Made with egui",
-                    "https://gihub.com/emilk/egui",
-                ));
+                ui.add(Hyperlink::from_label_and_url("Made with egui", "https://gihub.com/emilk/egui"));
                 ui.with_layout(egui::Layout::right_to_left(Align::Max), |ui| {
                     ui.add(egui::Hyperlink::new("https://www.rust-lang.org/"));
                 });
@@ -270,8 +266,8 @@ impl AppUI {
             .vscroll(true)
             .hscroll(true)
             .show(ctx, |ui| {
-                let node = self.kpdb.as_ref().and_then(|kpdb| kpdb.get_root()).map(NodeRef::Group);
-                self.uitree.ui(ui, &node);
+                let node = self.kpdb.as_ref().and_then(|kpdb| kpdb.get_root());
+                self.uitree.ui(ui, node);
             });
     }
 
@@ -279,8 +275,8 @@ impl AppUI {
         let node = self
             .state
             .current_node_id
-            .and_then(|id| self.kpdb.as_ref().and_then(|kpdb| kpdb.get_node_by_id(&id)))?;
-        let title = crate::keepass::get_title(&node).unwrap_or("(no title)");
+            .and_then(|id| self.kpdb.as_ref().and_then(|kpdb| kpdb.get_node_by_id(id)))?;
+        let title = &node.borrow().get_title().unwrap_or("(no title)").to_owned();
 
         let size = frame.info().window_info.size;
         let pos = egui::Pos2::new(size.x * 0.3, size.y / 5.0);
@@ -308,9 +304,24 @@ impl AppUI {
                 TreeEvent::NodeDeleted(id) => {
                     self.state.show_details_panel = false;
                     self.state.current_node_id = None;
-                    self.kpdb.as_mut().map(|kpdb| kpdb.delete_node(&id));
+                    self.kpdb.as_mut().map(|kpdb| kpdb.delete_node(id));
                 }
-                _ => {}
+                TreeEvent::EntryCreated(parent_id) => {
+                    self.kpdb.as_mut().map(|kpdb| {
+                        kpdb.create_new_entry(parent_id).map(|node| {
+                            self.state.show_details_panel = true;
+                            self.state.current_node_id = Some(node.borrow().get_uuid());
+                        })
+                    });
+                }
+                TreeEvent::GroupCreated(parent_id) => {
+                    self.kpdb.as_mut().map(|kpdb| {
+                        kpdb.create_new_group(parent_id).map(|node| {
+                            self.state.show_details_panel = true;
+                            self.state.current_node_id = Some(node.borrow().get_uuid());
+                        })
+                    });
+                }
             }
         }
     }

@@ -1,24 +1,10 @@
 use crate::error::Result;
-use keepass::{config::DatabaseConfig, db, db::NodeRef, Database, DatabaseKey, Uuid};
+use keepass::{
+    config::DatabaseConfig,
+    db::{self, Group, NodePtr},
+    group_get_children, node_is_group, search_node_by_uuid, Database, DatabaseKey, Uuid,
+};
 use std::fs::File;
-
-pub fn is_group(node: &NodeRef<'_>) -> bool {
-    matches!(node, NodeRef::Group(_))
-}
-
-pub fn get_uuid<'a>(node: &NodeRef<'a>) -> &'a Uuid {
-    match node {
-        NodeRef::Group(g) => &g.uuid,
-        NodeRef::Entry(e) => e.get_uuid(),
-    }
-}
-
-pub fn get_title<'a>(node: &NodeRef<'a>) -> Option<&'a str> {
-    match node {
-        NodeRef::Group(g) => Some(g.name.as_str()),
-        NodeRef::Entry(e) => e.get_title(),
-    }
-}
 
 #[derive(Debug)]
 pub struct KpDb {
@@ -76,56 +62,64 @@ impl KpDb {
         Ok(db_key)
     }
 
-    pub fn delete_node(&mut self, id: &Uuid) -> Result<()> {
+    pub fn delete_node(&mut self, uuid: Uuid) -> Result<()> {
         let db = self.db.as_mut().ok_or("No database")?;
-        let root = &mut db.root;
-        let _node = root
-            .into_iter()
-            .find(|node| get_uuid(node) == id)
-            .ok_or("Node not found")?;
-        log::error!("TODO: removing node \"{id}\" from db is not implemented");
-        // root.remove(_node)?;
+        let node = db.remove_node_by_uuid(uuid)?;
+        log::trace!("node: {:?} deleted", node.borrow().get_title());
         Ok(())
     }
 
-    pub fn get_root(&self) -> Option<&db::Group> {
-        self.db.as_ref().map(|db| &db.root)
+    pub fn create_new_group(&mut self, parent: Uuid) -> Result<NodePtr> {
+        let db = self.db.as_ref().ok_or("No database")?;
+        let group = db.create_new_group(parent, 0)?;
+        log::trace!("group: {:?} added", group.borrow().get_uuid());
+        Ok(group)
     }
 
-    pub fn get_groups<'a>(&'a self, parent: &'a db::Group) -> Vec<&'a db::Group> {
+    pub fn create_new_entry(&mut self, parent: Uuid) -> Result<NodePtr> {
+        let db = self.db.as_ref().ok_or("No database")?;
+        let entry = db.create_new_entry(parent, 0)?;
+        log::trace!("entry: {:?} added", entry.borrow().get_uuid());
+        Ok(entry)
+    }
+
+    pub fn get_root(&self) -> Option<db::NodePtr> {
+        self.db.as_ref().map(|db| db.root.clone())
+    }
+
+    pub fn get_groups(&self, parent: &db::NodePtr) -> Vec<db::NodePtr> {
         let mut groups = Vec::new();
-        for node in parent {
-            if let NodeRef::Group(g) = node {
-                groups.push(g);
+        group_get_children(parent).unwrap().iter().for_each(|node| {
+            if node_is_group(node) {
+                groups.push(node.clone());
             }
-        }
+        });
         groups
     }
 
-    pub fn get_entries<'a>(&'a self, parent: &'a db::Group) -> Vec<&'a db::Entry> {
+    pub fn get_entries(&self, parent: &db::NodePtr) -> Vec<db::NodePtr> {
         let mut entries = Vec::new();
-        for node in parent {
-            if let NodeRef::Entry(e) = node {
-                entries.push(e);
+        group_get_children(parent).unwrap().iter().for_each(|node| {
+            if !node_is_group(node) {
+                entries.push(node.clone());
             }
-        }
+        });
         entries
     }
 
-    pub fn get_item(&self, path: &[&str]) -> Option<db::NodeRef> {
-        self.get_root().and_then(|root| root.get(path))
+    pub fn get_item(&self, path: &[&str]) -> Option<db::NodePtr> {
+        self.get_root().and_then(|root| Group::get(&root, path))
     }
 
-    pub fn get_node_by_id(&self, id: &Uuid) -> Option<db::NodeRef> {
-        self.get_root()
-            .and_then(|root| root.into_iter().find(|node| get_uuid(node) == id))
+    pub fn get_node_by_id(&self, id: Uuid) -> Option<db::NodePtr> {
+        self.get_root().and_then(|root| search_node_by_uuid(&root, id))
     }
 }
 
 #[test]
 fn test_demo_db() {
     use crate::error::Error;
-    use keepass::db::NodeRef;
+    use keepass::{db::Entry, Node, NodeIterator};
     let block = || {
         dotenvy::dotenv().ok();
 
@@ -135,17 +129,14 @@ fn test_demo_db() {
 
         let kpdb = KpDb::open(&db_path, password.as_deref(), key_file.as_deref())?;
         // Iterate over all `Group`s and `Entry`s
-        for node in kpdb.get_root().unwrap() {
-            match node {
-                NodeRef::Group(g) => {
-                    println!("Saw group '{0}'", g.name);
-                }
-                NodeRef::Entry(e) => {
-                    let title = e.get_title().unwrap_or("(no title)");
-                    let user = e.get_username().unwrap_or("(no username)");
-                    let pass = e.get_password().unwrap_or("(no password)");
-                    println!("Entry '{0}': '{1}' : '{2}'", title, user, pass);
-                }
+        for node in NodeIterator::new(&kpdb.get_root().unwrap()) {
+            if node_is_group(&node) {
+                println!("Saw group '{}'", node.borrow().get_title().unwrap());
+            } else if let Some(entry) = node.borrow().as_any().downcast_ref::<Entry>() {
+                let title = entry.get_title().unwrap_or("(no title)");
+                let user = entry.get_username().unwrap_or("(no username)");
+                let pass = entry.get_password().unwrap_or("(no password)");
+                println!("Entry '{}': '{}' : '{}'", title, user, pass);
             }
         }
         Ok::<(), Error>(())

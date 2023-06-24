@@ -18,6 +18,9 @@ pub enum Error {
     #[error("std::env::VarError: {0}")]
     StdEnvVarError(#[from] std::env::VarError),
 
+    #[error("keepass::error::Error: {0}")]
+    KeepassError(#[from] keepass::error::Error),
+
     #[error("&str error: {0}")]
     Str(String),
 

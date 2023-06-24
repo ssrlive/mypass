@@ -34,3 +34,7 @@ or
 ```bash
 ./target/release/mypass
 ```
+
+## Screenshots
+
+![img](https://github.com/ssrlive/mypass/assets/30760636/4ded1594-e0d8-4ed1-ba18-233ab0e87f08)

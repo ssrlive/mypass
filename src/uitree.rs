@@ -1,6 +1,5 @@
-use crate::keepass::{get_uuid, is_group};
 use eframe::egui;
-use keepass::{db::NodeRef, Uuid};
+use keepass::{db::NodePtr, group_get_children, node_is_group, Uuid};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum TreeEvent {
@@ -16,7 +15,7 @@ pub(crate) struct UiTree {
 }
 
 impl UiTree {
-    pub fn ui(&mut self, ui: &mut egui::Ui, node: &Option<NodeRef<'_>>) {
+    pub fn ui(&mut self, ui: &mut egui::Ui, node: Option<NodePtr>) {
         self.ui_impl(ui, 0, node)
     }
 
@@ -26,22 +25,17 @@ impl UiTree {
 }
 
 impl UiTree {
-    fn ui_impl(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) {
-        let node_uuid = node.as_ref().map(get_uuid).copied();
+    fn ui_impl(&mut self, ui: &mut egui::Ui, depth: usize, node: Option<NodePtr>) {
+        let node_uuid = node.as_ref().map(|n| n.borrow().get_uuid());
         let title = if depth == 0 && node.is_none() {
-            "No keepass database loaded"
+            "No keepass database loaded".to_string()
         } else {
-            node.as_ref()
-                .and_then(|node| match node {
-                    NodeRef::Group(g) => Some(g.name.as_str()),
-                    NodeRef::Entry(e) => e.get_title(),
-                })
-                .unwrap_or("(no title)")
+            node.as_ref().unwrap().borrow().get_title().unwrap_or("(no title)").to_string()
         };
-        if node.as_ref().map(is_group).unwrap_or(false) {
-            let response = egui::CollapsingHeader::new(title)
+        if node.as_ref().map(node_is_group).unwrap_or(false) {
+            let response = egui::CollapsingHeader::new(&title)
                 .default_open(depth < 1)
-                .show(ui, |ui| self.children_ui(ui, depth, node));
+                .show(ui, |ui| self.children_ui(ui, depth, node.clone()));
             response.header_response.context_menu(|ui| {
                 if ui.button("Show details").clicked() {
                     log::info!("Show group {title} details");
@@ -69,7 +63,7 @@ impl UiTree {
             });
             response.body_returned.unwrap_or(())
         } else {
-            let response = ui.button(title).context_menu(|ui| {
+            let response = ui.button(&title).context_menu(|ui| {
                 if ui.button("Show details").clicked() {
                     log::info!("Show entry details {title}");
                     self.event = node_uuid.map(TreeEvent::NodeSelected);
@@ -88,10 +82,10 @@ impl UiTree {
         }
     }
 
-    fn children_ui(&mut self, ui: &mut egui::Ui, depth: usize, node: &Option<NodeRef<'_>>) {
-        if let Some(NodeRef::Group(group)) = node {
-            group.children.iter().for_each(|node| {
-                self.ui_impl(ui, depth + 1, &Some(node.into()));
+    fn children_ui(&mut self, ui: &mut egui::Ui, depth: usize, node: Option<NodePtr>) {
+        if let Some(ref group) = node {
+            group_get_children(group).unwrap().iter().for_each(|node| {
+                self.ui_impl(ui, depth + 1, Some(node.clone()));
             });
         }
     }

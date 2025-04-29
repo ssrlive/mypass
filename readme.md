@@ -2,7 +2,7 @@ Mypass - a keepass database manager written in Rust
 ===========================
 
 `Mypass` is a simple password manager written in [Rust](https://www.rust-lang.org/).
-It's a GUI application that uses [egui](https://github.com/emilk/egui) framework and [keepass-rs](https://github.com/sseemayer/keepass-rs) library.
+It's a GUI application that uses [egui](https://crates.io/crates/eframe) framework and [keepass-ng](https://crates.io/crates/keepass-ng) library.
 
 `Mypass` is a work in progress. It's not ready for daily use yet.
 

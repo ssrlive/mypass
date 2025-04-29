@@ -1,3 +1,4 @@
+#![allow(unused_variables)]
 use crate::{
     error::Error,
     fonts::find_cjk_fonts,
@@ -64,7 +65,7 @@ impl AppUI {
         let font_name = font_file.file_stem()?.to_str()?.to_string();
         let font_file_bytes = std::fs::read(font_file).ok()?;
         let font_data = eframe::egui::FontData::from_owned(font_file_bytes);
-        font_def.font_data.insert(font_name.to_string(), font_data);
+        font_def.font_data.insert(font_name.to_string(), font_data.into());
         let font_family = eframe::epaint::FontFamily::Proportional;
         font_def.families.get_mut(&font_family)?.insert(0, font_name);
         Some(())
@@ -83,7 +84,7 @@ impl AppUI {
                         ui.close_menu();
                     }
                     if ui.button("Quit").clicked() {
-                        frame.close();
+                        // frame.close();
                     }
                 });
                 if let Some(ref file_path) = self.kpdb.as_ref().and_then(|kpdb| kpdb.db_path.clone()) {
@@ -110,11 +111,13 @@ impl AppUI {
                 ui.with_layout(egui::Layout::right_to_left(Align::Max), |ui| {
                     let text = RichText::new("❌").text_style(egui::TextStyle::Body);
                     if ui.add(egui::Button::new(text)).clicked() {
-                        frame.close();
+                        // frame.close();
                     }
 
                     let text = RichText::new("🔄").text_style(egui::TextStyle::Body);
-                    if ui.add(egui::Button::new(text)).clicked() {}
+                    if ui.add(egui::Button::new(text)).clicked() {
+                        // TODO: refresh
+                    }
 
                     let text = if self.state.config.dark_mode { "🔆" } else { "🌙" };
                     let text = RichText::new(text).text_style(egui::TextStyle::Body);
@@ -131,7 +134,7 @@ impl AppUI {
         TopBottomPanel::bottom("footer").show(ctx, |ui| {
             ui.vertical_centered(|ui: &mut egui::Ui| {
                 ui.add_space(PADDING);
-                ui.add(Label::new("This is a footer").wrap(false));
+                ui.add(Label::new("This is a footer"));
                 ui.add(Hyperlink::from_label_and_url("Made with egui", "https://gihub.com/emilk/egui"));
                 ui.with_layout(egui::Layout::right_to_left(Align::Max), |ui| {
                     ui.add(egui::Hyperlink::new("https://www.rust-lang.org/"));
@@ -142,7 +145,8 @@ impl AppUI {
 
     fn render_confirm_exit_dialog(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.state.is_confirm_quit_dialog_visible() {
-            let size = frame.info().window_info.size;
+            // let size = frame.info().window_info.size;
+            let size = ctx.screen_rect().size();
             let pos = egui::Pos2::new(size.x / 3.0, size.y / 3.0);
 
             let title = format!("Do you want to quit {APP_NAME} really?");
@@ -154,7 +158,7 @@ impl AppUI {
                     ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
                         if ui.button("Quit").clicked() {
                             self.state.on_confirm_quit_dialog_quit();
-                            frame.close();
+                            // frame.close();
                             log::info!("{APP_NAME} closed.");
                         }
                         if ui.button("Cancel").clicked() {
@@ -167,7 +171,8 @@ impl AppUI {
 
     fn render_open_file_dialog(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.state.is_open_file_dialog_visible() {
-            let size = frame.info().window_info.size;
+            // let size = frame.info().window_info.size;
+            let size = ctx.screen_rect().size();
             let pos = egui::Pos2::new(size.x / 3.0, size.y / 3.0);
 
             egui::Window::new("Open keepass file")
@@ -278,7 +283,8 @@ impl AppUI {
             .and_then(|id| self.kpdb.as_ref().and_then(|kpdb| kpdb.get_node_by_id(id)))?;
         let title = &node.borrow().get_title().unwrap_or("(no title)").to_owned();
 
-        let size = frame.info().window_info.size;
+        // let size = frame.info().window_info.size;
+        let size = ctx.screen_rect().size();
         let pos = egui::Pos2::new(size.x * 0.3, size.y / 5.0);
 
         egui::Window::new(title)
@@ -328,9 +334,14 @@ impl AppUI {
 }
 
 impl eframe::App for AppUI {
+    /*
     fn on_close_event(&mut self) -> bool {
         self.state.on_show_confirm_quit_dialog();
         self.state.is_allowed_to_quit()
+    }
+    */
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        log::info!("on_exit");
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

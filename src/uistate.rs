@@ -1,5 +1,5 @@
 use eframe::egui;
-use keepass::Uuid;
+use keepass_ng::Uuid;
 use std::path::PathBuf;
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
@@ -92,6 +92,7 @@ impl UiState {
         self.keyfile = None;
     }
 
+    #[allow(dead_code)]
     pub fn on_show_confirm_quit_dialog(&mut self) {
         self.show_open_file_dialog = false;
         self.show_confirm_quit_dialog = true;
@@ -110,6 +111,7 @@ impl UiState {
         self.show_confirm_quit_dialog
     }
 
+    #[allow(dead_code)]
     pub fn is_allowed_to_quit(&self) -> bool {
         self.allowed_to_quit
     }

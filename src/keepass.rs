@@ -1,8 +1,7 @@
 use crate::error::Result;
-use keepass::{
-    config::DatabaseConfig,
-    db::{self, Group, NodePtr},
-    group_get_children, node_is_group, search_node_by_uuid, Database, DatabaseKey, Uuid,
+use keepass_ng::{
+    DatabaseConfig, DatabaseKey, Uuid,
+    db::{self, Database, Group, NodePtr, group_get_children, node_is_group, search_node_by_uuid},
 };
 use std::fs::File;
 
@@ -84,7 +83,7 @@ impl KpDb {
     }
 
     pub fn get_root(&self) -> Option<db::NodePtr> {
-        self.db.as_ref().map(|db| db.root.clone())
+        self.db.as_ref().map(|db| db.root.clone().into())
     }
 
     pub fn get_groups(&self, parent: &db::NodePtr) -> Vec<db::NodePtr> {
@@ -119,7 +118,7 @@ impl KpDb {
 #[test]
 fn test_demo_db() {
     use crate::error::Error;
-    use keepass::{db::Entry, Node, NodeIterator};
+    use keepass_ng::db::{Entry, Node, NodeIterator};
     let block = || {
         dotenvy::dotenv().ok();
 
@@ -132,7 +131,7 @@ fn test_demo_db() {
         for node in NodeIterator::new(&kpdb.get_root().unwrap()) {
             if node_is_group(&node) {
                 println!("Saw group '{}'", node.borrow().get_title().unwrap());
-            } else if let Some(entry) = node.borrow().as_any().downcast_ref::<Entry>() {
+            } else if let Some(entry) = node.borrow().downcast_ref::<Entry>() {
                 let title = entry.get_title().unwrap_or("(no title)");
                 let user = entry.get_username().unwrap_or("(no username)");
                 let pass = entry.get_password().unwrap_or("(no password)");
@@ -141,5 +140,5 @@ fn test_demo_db() {
         }
         Ok::<(), Error>(())
     };
-    assert_eq!(block().is_ok(), true);
+    assert!(block().is_ok());
 }

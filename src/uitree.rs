@@ -1,5 +1,8 @@
 use eframe::egui;
-use keepass::{db::NodePtr, group_get_children, node_is_group, Uuid};
+use keepass_ng::{
+    Uuid,
+    db::{NodePtr, group_get_children, node_is_group},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub(crate) enum TreeEvent {
@@ -63,7 +66,7 @@ impl UiTree {
             });
             response.body_returned.unwrap_or(())
         } else {
-            let response = ui.button(&title).context_menu(|ui| {
+            let _response = ui.button(&title).context_menu(|ui| {
                 if ui.button("Show details").clicked() {
                     log::info!("Show entry details {title}");
                     self.event = node_uuid.map(TreeEvent::NodeSelected);
@@ -76,9 +79,9 @@ impl UiTree {
                     ui.close_menu();
                 }
             });
-            if response.clicked() {
-                self.event = node_uuid.map(TreeEvent::NodeSelected);
-            }
+            // if _response.clicked() {
+            //     self.event = node_uuid.map(TreeEvent::NodeSelected);
+            // }
         }
     }
 

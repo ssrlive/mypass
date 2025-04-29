@@ -3,11 +3,11 @@ pub enum Error {
     #[error("eframe::Error: {0}")]
     Eframe(#[from] eframe::Error),
 
-    #[error("keepass::error::DatabaseOpenError: {0}")]
-    KeepassDatabaseOpenError(#[from] keepass::error::DatabaseOpenError),
+    #[error("keepass_ng::DatabaseOpenError: {0}")]
+    KeepassDatabaseOpenError(#[from] keepass_ng::DatabaseOpenError),
 
-    #[error("keepass::error::DatabaseKeyError: {0}")]
-    KeepassDatabaseKeyError(#[from] keepass::error::DatabaseKeyError),
+    #[error("keepass_ng::DatabaseKeyError: {0}")]
+    KeepassDatabaseKeyError(#[from] keepass_ng::DatabaseKeyError),
 
     #[error("std::io::Error: {0}")]
     StdIoError(#[from] std::io::Error),
@@ -18,8 +18,8 @@ pub enum Error {
     #[error("std::env::VarError: {0}")]
     StdEnvVarError(#[from] std::env::VarError),
 
-    #[error("keepass::error::Error: {0}")]
-    KeepassError(#[from] keepass::error::Error),
+    #[error("keepass_ng::Error: {0}")]
+    KeepassError(#[from] keepass_ng::Error),
 
     #[error("&str error: {0}")]
     Str(String),

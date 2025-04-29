@@ -1,4 +1,7 @@
-.*
+/.vscode
+/.VSCodeCounter
+/.idea
+/.env
 tmp/
 build/
 examples/

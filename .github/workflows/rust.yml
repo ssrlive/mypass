@@ -15,6 +15,7 @@ jobs:
   build:
 
     strategy:
+      fail-fast: false
       matrix:
         target:
           - x86_64-unknown-linux-gnu
@@ -35,7 +36,9 @@ jobs:
     runs-on: ${{ matrix.host_os }}
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - uses: dtolnay/rust-toolchain@stable
 
     - name: Prepare
       shell: bash
@@ -44,31 +47,30 @@ jobs:
 
     - name: Install packages (Linux)
       if: runner.os == 'Linux'
-      uses: rerun-io/cache-apt-pkgs-action@59534850182063abf1b2c11bb3686722a12a8397
+      uses: awalsh128/cache-apt-pkgs-action@latest
       with:
         packages: libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libgtk-3-dev
         version: 1.0
         execute_install_scripts: true
 
     - name: Rustfmt
-      uses: actions-rs/cargo@v1
-      with:
-        command: fmt
-        args: --all -- --check
+      if: ${{ !cancelled() }}
+      run: cargo fmt --all -- --check
 
     - name: Clippy
-      run: cargo clippy --all-features -- -D warnings
+      if: ${{ !cancelled() }}
+      run: cargo clippy --all-features --all-targets -- -D warnings
   
     - name: check --all-features
-      uses: actions-rs/cargo@v1
-      with:
-        command: check
-        args: --all-features --target ${{ matrix.target }}
+      if: ${{ !cancelled() }}
+      run: cargo check --all-features --target ${{ matrix.target }}
 
     - name: Build
+      if: ${{ !cancelled() }}
       run: cargo build --verbose --all-features --target ${{ matrix.target }}
 
     - name: Run tests
+      if: ${{ !cancelled() }}
       shell: bash
       run: |
         if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
@@ -76,3 +78,7 @@ jobs:
         else
           cargo test --verbose --all-features --target ${{ matrix.target }}
         fi
+
+    - name: Abort on error
+      if: ${{ failure() }}
+      run: echo "Some of jobs failed" && false

@@ -24,11 +24,7 @@ pub(crate) fn find_cjk_fonts() -> Option<Vec<PathBuf>> {
                         .unwrap_or(def_font_path);
                     let font_path = font_line.split(':').next()?.trim();
                     let font_path = PathBuf::from(font_path);
-                    if font_path.exists() {
-                        Some(font_path)
-                    } else {
-                        None
-                    }
+                    if font_path.exists() { Some(font_path) } else { None }
                 })
                 .collect::<Vec<_>>();
             Some(font_files)
@@ -69,5 +65,5 @@ pub(crate) fn find_cjk_fonts() -> Option<Vec<PathBuf>> {
 #[test]
 fn test_find_cjk_fonts() {
     let font_files = find_cjk_fonts();
-    assert!(font_files.unwrap().len() > 0);
+    assert!(!font_files.unwrap().is_empty());
 }

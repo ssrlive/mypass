@@ -49,10 +49,10 @@ impl KpDb {
         let key_file = key_file.as_mut().map(|kf| kf as &mut dyn std::io::Read);
 
         let mut db_key = DatabaseKey::new();
-        if let Some(ref password) = self.password {
-            if !password.is_empty() {
-                db_key = db_key.with_password(password);
-            }
+        if let Some(ref password) = self.password
+            && !password.is_empty()
+        {
+            db_key = db_key.with_password(password);
         }
         if let Some(key_file) = key_file {
             db_key = db_key.with_keyfile(key_file)?;

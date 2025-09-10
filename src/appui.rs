@@ -75,16 +75,16 @@ impl AppUI {
         TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.add_space(PADDING);
             ui.horizontal(|ui| {
-                egui::menu::menu_button(ui, "Main", |ui| {
+                ui.menu_button("Main", |ui| {
                     let v = ["Hide architecture", "Show architecture"];
                     let show = &mut self.state.config.show_tree_panel;
                     let text = if *show { v[0] } else { v[1] };
                     if ui.button(text).clicked() {
                         *show = !*show;
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                     if ui.button("Quit").clicked() {
-                        // frame.close();
+                        self.state.on_show_confirm_quit_dialog();
                     }
                 });
                 if let Some(ref file_path) = self.kpdb.as_ref().and_then(|kpdb| kpdb.db_path.clone()) {
@@ -95,7 +95,7 @@ impl AppUI {
             });
             ui.separator();
 
-            egui::menu::bar(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 ui.with_layout(egui::Layout::left_to_right(Align::Max), |ui| {
                     let text = RichText::new("🗋").text_style(egui::TextStyle::Heading);
                     ui.add(egui::Label::new(text));

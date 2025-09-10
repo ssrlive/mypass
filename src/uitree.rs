@@ -43,25 +43,25 @@ impl UiTree {
                 if ui.button("Show details").clicked() {
                     log::info!("Show group {title} details");
                     self.event = node_uuid.map(TreeEvent::NodeSelected);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if depth > 0 {
                     let del = egui::RichText::new("Delete").color(ui.visuals().warn_fg_color);
                     if ui.button(del).clicked() {
                         log::info!("Delete group {title}");
                         self.event = node_uuid.map(TreeEvent::NodeDeleted);
-                        ui.close_menu();
+                        ui.close_kind(egui::UiKind::Menu);
                     }
                 }
                 if ui.button("Create new entry").clicked() {
                     log::info!("Create new entry in {title}");
                     self.event = node_uuid.map(TreeEvent::EntryCreated);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 if ui.button("Create new group").clicked() {
                     log::info!("Create new group in {title}");
                     self.event = node_uuid.map(TreeEvent::GroupCreated);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             response.body_returned.unwrap_or(())
@@ -70,13 +70,13 @@ impl UiTree {
                 if ui.button("Show details").clicked() {
                     log::info!("Show entry details {title}");
                     self.event = node_uuid.map(TreeEvent::NodeSelected);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
                 let del = egui::RichText::new("Delete").color(ui.visuals().warn_fg_color);
                 if ui.button(del).clicked() {
                     log::info!("Delete entry {title}");
                     self.event = node_uuid.map(TreeEvent::NodeDeleted);
-                    ui.close_menu();
+                    ui.close_kind(egui::UiKind::Menu);
                 }
             });
             // if _response.clicked() {

@@ -1,7 +1,7 @@
 use eframe::egui;
 use keepass_ng::{
     Uuid,
-    db::{NodePtr, group_get_children, node_is_group},
+    db::{Entry, NodePtr, group_get_children, node_is_group},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -28,12 +28,59 @@ impl UiTree {
 }
 
 impl UiTree {
+    fn node_title(node: &NodePtr) -> String {
+        let node = node.borrow();
+        let title = node.get_title().map(str::trim).filter(|title| !title.is_empty());
+        let entry_parts = node.downcast_ref::<Entry>().map(|entry| {
+            let name = entry
+                .get_username()
+                .or_else(|| entry.get("Email"))
+                .and_then(|value| value.split('@').next())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_owned);
+            let website = entry
+                .get_url()
+                .or_else(|| entry.get("Website"))
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(Self::website_display_name);
+
+            (name, website)
+        });
+
+        let Some((name, website)) = entry_parts else {
+            return title.unwrap_or("(no title)").to_owned();
+        };
+
+        let account = match (name, website) {
+            (Some(name), Some(website)) => format!("{name} @ {website}"),
+            (Some(name), None) => name,
+            (None, Some(website)) => website,
+            (None, None) => String::new(),
+        };
+
+        match (title, account.is_empty()) {
+            (Some(title), false) => format!("{title} · {account}"),
+            (Some(title), true) => title.to_owned(),
+            (None, false) => account,
+            (None, true) => "(no title)".to_string(),
+        }
+    }
+
+    fn website_display_name(website: &str) -> String {
+        url::Url::parse(website)
+            .ok()
+            .and_then(|url| url.host_str().map(str::to_owned))
+            .unwrap_or_else(|| website.to_owned())
+    }
+
     fn ui_impl(&mut self, ui: &mut egui::Ui, depth: usize, node: Option<NodePtr>) {
         let node_uuid = node.as_ref().map(|n| n.borrow().get_uuid());
         let title = if depth == 0 && node.is_none() {
             "No keepass database loaded".to_string()
         } else {
-            node.as_ref().unwrap().borrow().get_title().unwrap_or("(no title)").to_string()
+            Self::node_title(node.as_ref().unwrap())
         };
         if node.as_ref().map(node_is_group).unwrap_or(false) {
             let response = egui::CollapsingHeader::new(&title)

@@ -11,7 +11,7 @@ It's a GUI application that uses [egui](https://crates.io/crates/eframe) framewo
 
 - [Rust](https://rustup.rs)
 - Dependencies for [egui on Linux](https://github.com/emilk/egui#demo)
-  - On Ubuntu: `sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libgtk-3-dev`
+  - On Ubuntu: `sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libgtk-3-dev libxdo-dev libayatana-appindicator3-dev`
   - On Fedora: `dnf install clang clang-devel clang-tools-extra libxkbcommon-devel pkg-config openssl-devel libxcb-devel gtk3-devel atk fontconfig-devel`
 
 - There needn't be any dependencies on Windows and macOS.

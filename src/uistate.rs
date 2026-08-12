@@ -23,6 +23,7 @@ pub(crate) struct UiState {
     pub file_path: Option<PathBuf>,
     pub password: String,
     pub keyfile: Option<PathBuf>,
+    pub show_about_dialog: bool,
 
     pub show_confirm_quit_dialog: bool,
     pub allowed_to_quit: bool,

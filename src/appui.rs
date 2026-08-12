@@ -11,15 +11,47 @@ use eframe::{
     egui::{self, Hyperlink, Label, Panel, RichText, ScrollArea},
     emath::Align,
 };
+use std::cell::RefCell;
+#[cfg(target_os = "linux")]
+use std::sync::mpsc::{self, Receiver, Sender};
+use tray_icon::{
+    Icon, TrayIcon, TrayIconBuilder,
+    menu::{Menu, MenuEvent, MenuItem},
+};
 
 const PADDING: f32 = 1.0;
 pub const APP_NAME: &str = "mypass";
 
-#[derive(Default, Debug)]
+#[derive(Clone, Copy)]
+enum TrayAction {
+    ToggleWindow,
+    About,
+    Quit,
+}
+
+#[derive(Default)]
+struct TrayMenuIds {
+    show_hide: Option<String>,
+    about: Option<String>,
+    quit: Option<String>,
+}
+
+struct TrayState {
+    _icon: TrayIcon,
+    ids: TrayMenuIds,
+}
+
+thread_local! {
+    static TRAY_STATE: RefCell<Option<TrayState>> = const { RefCell::new(None) };
+}
+
+#[derive(Default)]
 pub struct AppUI {
     kpdb: Option<KpDb>,
     state: UiState,
     uitree: UiTree,
+    #[cfg(target_os = "linux")]
+    tray_actions: Option<Receiver<TrayAction>>,
 }
 
 impl AppUI {
@@ -42,10 +74,132 @@ impl AppUI {
             Ok::<KpDb, Error>(kpdb)
         };
 
-        Self {
+        #[cfg(target_os = "linux")]
+        let (tray_sender, tray_actions) = mpsc::channel::<TrayAction>();
+        let app = Self {
             kpdb: block().ok(),
             state,
+            #[cfg(target_os = "linux")]
+            tray_actions: Some(tray_actions),
             ..Default::default()
+        };
+        #[cfg(target_os = "linux")]
+        Self::start_linux_tray(cc.egui_ctx.clone(), tray_sender);
+        app
+    }
+
+    #[cfg(target_os = "linux")]
+    fn start_linux_tray(egui_ctx: egui::Context, tray_sender: Sender<TrayAction>) {
+        MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
+            let action = Self::tray_action_for_id(event.id.as_ref());
+            if let Some(action) = action {
+                let _ = tray_sender.send(action);
+                egui_ctx.request_repaint();
+            }
+        }));
+
+        let icon = Self::create_tray_icon();
+        std::thread::spawn(move || {
+            gtk::init().expect("initialize GTK for tray icon");
+            TRAY_STATE.with(|state| {
+                let mut state = state.borrow_mut();
+                *state = Some(Self::build_tray_state(icon));
+            });
+            gtk::main();
+        });
+    }
+
+    fn build_tray_state(icon: Icon) -> TrayState {
+        let tray_menu = Menu::new();
+        let show_hide = MenuItem::new("Show/Hide main window", true, None);
+        let about = MenuItem::new("About", true, None);
+        let quit = MenuItem::new("Quit", true, None);
+        tray_menu.append(&show_hide).expect("append tray menu item");
+        tray_menu.append(&about).expect("append tray menu item");
+        tray_menu.append(&quit).expect("append tray menu item");
+
+        let ids = TrayMenuIds {
+            show_hide: Some(show_hide.id().as_ref().to_owned()),
+            about: Some(about.id().as_ref().to_owned()),
+            quit: Some(quit.id().as_ref().to_owned()),
+        };
+        let icon = TrayIconBuilder::new()
+            .with_menu(Box::new(tray_menu))
+            .with_tooltip(APP_NAME)
+            .with_icon(icon)
+            .build()
+            .expect("create tray icon");
+
+        TrayState { _icon: icon, ids }
+    }
+
+    fn tray_action_for_id(id: &str) -> Option<TrayAction> {
+        TRAY_STATE.with(|state| {
+            let state = state.borrow();
+            let ids = &state.as_ref()?.ids;
+            if ids.show_hide.as_deref() == Some(id) {
+                Some(TrayAction::ToggleWindow)
+            } else if ids.about.as_deref() == Some(id) {
+                Some(TrayAction::About)
+            } else if ids.quit.as_deref() == Some(id) {
+                Some(TrayAction::Quit)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn create_tray_icon() -> Icon {
+        let mut rgba = vec![0_u8; 16 * 16 * 4];
+        for pixel in rgba.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&[30, 144, 255, 255]);
+        }
+        Icon::from_rgba(rgba, 16, 16).expect("create tray icon image")
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn setup_tray_icon(&mut self) {
+        TRAY_STATE.with(|state| {
+            if state.borrow().is_some() {
+                return;
+            }
+            let icon = Self::create_tray_icon();
+            *state.borrow_mut() = Some(Self::build_tray_state(icon));
+            log::info!("System tray icon created");
+        });
+    }
+
+    fn toggle_main_window(&self, frame: &mut eframe::Frame) {
+        if let Some(window) = frame.winit_window() {
+            let is_visible = window.is_visible().unwrap_or(false);
+            let should_show = !is_visible;
+            window.set_visible(should_show);
+            if should_show {
+                window.focus_window();
+            }
+        }
+    }
+
+    fn handle_tray_events(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        #[cfg(target_os = "linux")]
+        if let Some(actions) = &self.tray_actions {
+            while let Ok(action) = actions.try_recv() {
+                match action {
+                    TrayAction::ToggleWindow => self.toggle_main_window(frame),
+                    TrayAction::About => self.state.show_about_dialog = true,
+                    TrayAction::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                }
+            }
+        }
+
+        #[cfg(not(target_os = "linux"))]
+        while let Ok(event) = MenuEvent::receiver().try_recv() {
+            match Self::tray_action_for_id(event.id.as_ref()) {
+                Some(TrayAction::ToggleWindow) => self.toggle_main_window(frame),
+                Some(TrayAction::About) => self.state.show_about_dialog = true,
+                Some(TrayAction::Quit) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                None => {}
+            }
         }
     }
 
@@ -171,6 +325,30 @@ impl AppUI {
                         }
                         if ui.button("Cancel").clicked() {
                             self.state.on_confirm_quit_dialog_cancel();
+                        }
+                    });
+                });
+        }
+    }
+
+    fn render_about_dialog(&mut self, ctx: &egui::Context) {
+        if self.state.show_about_dialog {
+            let size = Self::viewport_size(ctx);
+            let pos = egui::Pos2::new(size.x / 3.0, size.y / 3.0);
+
+            egui::Window::new("About mypass")
+                .collapsible(false)
+                .resizable(false)
+                .order(egui::Order::Foreground)
+                .default_pos(pos)
+                .show(ctx, |ui| {
+                    ui.heading(APP_NAME);
+                    ui.label("A KeePass database viewer.");
+                    ui.separator();
+                    ui.label("Built with egui and keepass-ng.");
+                    ui.with_layout(egui::Layout::right_to_left(Align::Min), |ui| {
+                        if ui.button("Close").clicked() {
+                            self.state.show_about_dialog = false;
                         }
                     });
                 });
@@ -357,8 +535,17 @@ impl eframe::App for AppUI {
         }
     }
 
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        #[cfg(not(target_os = "linux"))]
+        self.setup_tray_icon();
+        self.handle_tray_events(ctx, frame);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        #[cfg(not(target_os = "linux"))]
+        self.setup_tray_icon();
+        self.handle_tray_events(&ctx, frame);
         if self.state.config.dark_mode {
             ctx.set_theme(egui::Theme::Dark);
         } else {
@@ -370,6 +557,7 @@ impl eframe::App for AppUI {
             ScrollArea::vertical().show(ui, |_: &mut egui::Ui| {});
         });
         self.render_confirm_exit_dialog(&ctx, frame);
+        self.render_about_dialog(&ctx);
         self.render_open_file_dialog(&ctx, frame);
         self.render_tree_panel(&ctx, frame);
 

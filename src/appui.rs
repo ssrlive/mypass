@@ -8,7 +8,7 @@ use crate::{
     uitree::{TreeEvent, UiTree},
 };
 use eframe::{
-    egui::{self, Hyperlink, Label, RichText, ScrollArea, TopBottomPanel},
+    egui::{self, Hyperlink, Label, Panel, RichText, ScrollArea},
     emath::Align,
 };
 
@@ -71,8 +71,8 @@ impl AppUI {
         Some(())
     }
 
-    fn render_top_panel(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
-        TopBottomPanel::top("top_panel").show(ctx, |ui| {
+    fn render_top_panel(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        Panel::top("top_panel").show(ui, |ui| {
             ui.add_space(PADDING);
             ui.horizontal(|ui| {
                 ui.menu_button("Main", |ui| {
@@ -130,8 +130,8 @@ impl AppUI {
         });
     }
 
-    fn render_footer(&self, ctx: &egui::Context) {
-        TopBottomPanel::bottom("footer").show(ctx, |ui| {
+    fn render_footer(&self, ui: &mut egui::Ui) {
+        Panel::bottom("footer").show(ui, |ui| {
             ui.vertical_centered(|ui: &mut egui::Ui| {
                 ui.add_space(PADDING);
                 ui.add(Label::new("This is a footer"));
@@ -143,10 +143,18 @@ impl AppUI {
         });
     }
 
-    fn render_confirm_exit_dialog(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn viewport_size(ctx: &egui::Context) -> egui::Vec2 {
+        ctx.input(|i| {
+            i.viewport()
+                .inner_rect
+                .map(|r| r.size())
+                .unwrap_or_else(|| egui::vec2(960.0, 640.0))
+        })
+    }
+
+    fn render_confirm_exit_dialog(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.state.is_confirm_quit_dialog_visible() {
-            // let size = frame.info().window_info.size;
-            let size = ctx.screen_rect().size();
+            let size = Self::viewport_size(ctx);
             let pos = egui::Pos2::new(size.x / 3.0, size.y / 3.0);
 
             let title = format!("Do you want to quit {APP_NAME} really?");
@@ -169,10 +177,9 @@ impl AppUI {
         }
     }
 
-    fn render_open_file_dialog(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn render_open_file_dialog(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.state.is_open_file_dialog_visible() {
-            // let size = frame.info().window_info.size;
-            let size = ctx.screen_rect().size();
+            let size = Self::viewport_size(ctx);
             let pos = egui::Pos2::new(size.x / 3.0, size.y / 3.0);
 
             egui::Window::new("Open keepass file")
@@ -252,14 +259,15 @@ impl AppUI {
             });
 
             let painter = ctx.layer_painter(LayerId::new(Order::Foreground, Id::new("file_drop_target")));
-
-            let screen_rect = ctx.screen_rect();
+            let screen_rect = ctx
+                .input(|i| i.viewport().inner_rect)
+                .unwrap_or(Rect::from_min_size(Pos2::ZERO, Vec2::new(960.0, 640.0)));
             painter.rect_filled(screen_rect, 0.0, Color32::from_black_alpha(192));
             painter.text(
                 screen_rect.center(),
                 Align2::CENTER_CENTER,
                 text,
-                TextStyle::Heading.resolve(&ctx.style()),
+                TextStyle::Heading.resolve(&ctx.global_style()),
                 Color32::WHITE,
             );
         }
@@ -276,15 +284,14 @@ impl AppUI {
             });
     }
 
-    fn render_kp_node_details_panel(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) -> Option<()> {
+    fn render_kp_node_details_panel(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) -> Option<()> {
         let node = self
             .state
             .current_node_id
             .and_then(|id| self.kpdb.as_ref().and_then(|kpdb| kpdb.get_node_by_id(id)))?;
         let title = &node.borrow().get_title().unwrap_or("(no title)").to_owned();
 
-        // let size = frame.info().window_info.size;
-        let size = ctx.screen_rect().size();
+        let size = Self::viewport_size(ctx);
         let pos = egui::Pos2::new(size.x * 0.3, size.y / 5.0);
 
         egui::Window::new(title)
@@ -340,7 +347,7 @@ impl eframe::App for AppUI {
         self.state.is_allowed_to_quit()
     }
     */
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         log::info!("on_exit");
     }
 
@@ -350,26 +357,27 @@ impl eframe::App for AppUI {
         }
     }
 
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
         if self.state.config.dark_mode {
-            ctx.set_visuals(egui::Visuals::dark());
+            ctx.set_theme(egui::Theme::Dark);
         } else {
-            ctx.set_visuals(egui::Visuals::light());
+            ctx.set_theme(egui::Theme::Light);
         }
-        self.render_top_panel(ctx, frame);
-        self.render_footer(ctx);
-        egui::CentralPanel::default().show(ctx, |ui| {
+        self.render_top_panel(ui, frame);
+        self.render_footer(ui);
+        egui::CentralPanel::default().show(ui, |ui| {
             ScrollArea::vertical().show(ui, |_: &mut egui::Ui| {});
         });
-        self.render_confirm_exit_dialog(ctx, frame);
-        self.render_open_file_dialog(ctx, frame);
-        self.render_tree_panel(ctx, frame);
+        self.render_confirm_exit_dialog(&ctx, frame);
+        self.render_open_file_dialog(&ctx, frame);
+        self.render_tree_panel(&ctx, frame);
 
         self.db_events_handler();
 
-        self.render_kp_node_details_panel(ctx, frame);
+        self.render_kp_node_details_panel(&ctx, frame);
 
-        Self::render_preview_files_being_dropped(ctx);
+        Self::render_preview_files_being_dropped(&ctx);
         // Collect dropped files
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {

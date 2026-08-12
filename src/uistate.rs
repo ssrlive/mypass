@@ -27,7 +27,7 @@ pub(crate) struct UiState {
     pub show_confirm_quit_dialog: bool,
     pub allowed_to_quit: bool,
 
-    pub dropped_files: Vec<egui::DroppedFile>,
+    pub dropped_files: Vec<egui::DroppedFileHandle>,
 
     pub show_details_panel: bool,
     pub current_node_id: Option<Uuid>,
@@ -55,15 +55,13 @@ impl UiState {
     pub fn deal_with_dropped_files(&mut self) {
         let mut file_path: Option<PathBuf> = None;
         for file in &self.dropped_files {
-            let info = if let Some(path) = &file.path {
-                path.display().to_string()
-            } else if !file.name.is_empty() {
-                file.name.clone()
+            let info = if let Some(path) = file.path().to_str() {
+                path.to_owned()
             } else {
                 "???".to_owned()
             };
             if info.ends_with(".kdbx") {
-                file_path = file.path.clone();
+                file_path = Some(file.path().to_path_buf());
                 break;
             }
         }

@@ -1,0 +1,9 @@
+/.vscode
+/.VSCodeCounter
+/.idea
+/.env
+tmp/
+build/
+examples/
+Cargo.lock
+target/

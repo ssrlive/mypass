@@ -1,0 +1,42 @@
+[package]
+name = "mypass"
+version = "0.1.0"
+edition = "2024"
+license-file = "LICENSE"
+
+[dependencies]
+dotenvy = "0.15.7"
+env_logger = "0.11.11"
+# keepass-ng = { version = "0.11.2", path = "../keepass-ng", features = [
+#     "utilities",
+#     "save_kdbx4",
+#     "challenge_response",
+#     "merge",
+# ] }
+keepass-ng = { version = "0.11.2", features = [
+    "utilities",
+    "save_kdbx4",
+    "challenge_response",
+    "merge",
+] }
+log = "0.4.33"
+rfd = { version = "0.17.2" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+tray-icon = "0.24.2"
+url = "2.5.8"
+wxdragon = { version = "0.9.18", git = "https://github.com/AllenDang/wxDragon.git", rev = "9ff165f", default-features = false, features = [
+    "aui",
+] }
+# wxdragon = { version = "0.9.18", path = "../wxDragon/rust/wxdragon", default-features = false, features = [
+#     "aui",
+# ] }
+# wxdragon = { version = "0.9.18", default-features = false, features = ["aui"] }
+
+[build-dependencies]
+embed-manifest = "1.4"
+embed-resource = "3.0.6"
+serde_json = "*"
+
+[dev-dependencies]

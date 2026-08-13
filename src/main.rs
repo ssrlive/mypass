@@ -128,7 +128,13 @@ fn build_entry_view(parent: &Panel, entry: &Entry) {
         .filter(|_| entry.get_times().get_expires())
         .map(|time| time.format("%Y-%m-%d %H:%M:%S").to_string())
         .unwrap_or_else(|| "Never".to_string());
+    let last_modified = entry
+        .get_times()
+        .get_last_modification()
+        .map(|time| time.format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_default();
     add_detail_row(&general_grid, &general_page, "Expires", &expiry);
+    add_detail_row(&general_grid, &general_page, "Last Modified", &last_modified);
     add_detail_row(&general_grid, &general_page, "Tags", &entry.get_tags().join(", "));
     add_detail_row(&general_grid, &general_page, "Notes", entry.get_notes().unwrap_or(""));
     general_sizer.add_sizer(&general_grid, 0, SizerFlag::All | SizerFlag::Expand, 12);
@@ -257,7 +263,8 @@ fn build_group_view(
     list.insert_column(1, "Title", ListColumnFormat::Left, 150);
     list.insert_column(2, "Username", ListColumnFormat::Left, 140);
     list.insert_column(3, "URL", ListColumnFormat::Left, 200);
-    list.insert_column(4, "Notes", ListColumnFormat::Left, -1);
+    list.insert_column(4, "Last Modified", ListColumnFormat::Left, 140);
+    list.insert_column(5, "Notes", ListColumnFormat::Left, -1);
 
     if let Some(children) = group_get_children(group) {
         for (index, child) in children.iter().enumerate() {
@@ -268,10 +275,17 @@ fn build_group_view(
             }
             list.set_custom_data(row as u64, child.borrow().get_uuid());
             list.set_item_text_by_column(row, 1, &node_title(child));
+            let last_modified = child
+                .borrow()
+                .get_times()
+                .get_last_modification()
+                .map(|time| time.format("%Y-%m-%d %H:%M:%S").to_string())
+                .unwrap_or_default();
+            list.set_item_text_by_column(row, 4, &last_modified);
             if let Some(entry) = child.borrow().downcast_ref::<Entry>() {
                 list.set_item_text_by_column(row, 2, entry.get_username().unwrap_or(""));
                 list.set_item_text_by_column(row, 3, entry.get_url().unwrap_or(""));
-                list.set_item_text_by_column(row, 4, entry.get_notes().unwrap_or(""));
+                list.set_item_text_by_column(row, 5, entry.get_notes().unwrap_or(""));
             }
         }
     }

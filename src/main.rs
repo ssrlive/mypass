@@ -94,7 +94,32 @@ fn build_entry_view(parent: &Panel, entry: &Entry) {
     parent.set_sizer(sizer, true);
 }
 
-fn build_group_view(parent: &Panel, group: &NodePtr) {
+fn find_tree_item(tree: &TreeCtrl, item: &TreeItemId, uuid: Uuid) -> Option<TreeItemId> {
+    if let Some(data) = tree.get_custom_data(item)
+        && let Some(item_uuid) = data.downcast_ref::<Uuid>()
+        && *item_uuid == uuid
+    {
+        return Some(item.clone());
+    }
+
+    let (mut child, mut cookie) = tree.get_first_child(item)?;
+    loop {
+        if let Some(found) = find_tree_item(tree, &child, uuid) {
+            return Some(found);
+        }
+        child = tree.get_next_child(item, &mut cookie)?;
+    }
+}
+
+fn build_group_view(
+    parent: &Panel,
+    group: &NodePtr,
+    tree: &TreeCtrl,
+    content: &Panel,
+    current_view: &Rc<RefCell<Option<Panel>>>,
+    kpdb: &Rc<Option<KpDb>>,
+    status_bar: &StatusBar,
+) {
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     let title = StaticText::builder(parent).with_label(&node_title(group)).build();
     sizer.add(&title, 0, SizerFlag::All | SizerFlag::Expand, 8);
@@ -115,6 +140,7 @@ fn build_group_view(parent: &Panel, group: &NodePtr) {
             if list.insert_item(row, kind, None) < 0 {
                 continue;
             }
+            list.set_custom_data(row as u64, child.borrow().get_uuid());
             list.set_item_text_by_column(row, 1, &node_title(child));
             if let Some(entry) = child.borrow().downcast_ref::<Entry>() {
                 list.set_item_text_by_column(row, 2, entry.get_username().unwrap_or(""));
@@ -124,24 +150,75 @@ fn build_group_view(parent: &Panel, group: &NodePtr) {
         }
     }
 
+    let tree_for_activation = *tree;
+    let content_for_activation = *content;
+    let current_view_for_activation = Rc::clone(current_view);
+    let kpdb_for_activation = Rc::clone(kpdb);
+    let status_bar_for_activation = *status_bar;
+    list.on_item_activated(move |event| {
+        let row = event.get_item_index();
+        if row < 0 {
+            return;
+        }
+        let Some(data) = list.get_custom_data(row as u64) else {
+            return;
+        };
+        let Some(uuid) = data.downcast_ref::<Uuid>() else {
+            return;
+        };
+        let uuid = *uuid;
+        if let Some(root_item) = tree_for_activation.get_root_item()
+            && let Some(tree_item) = find_tree_item(&tree_for_activation, &root_item, uuid)
+        {
+            tree_for_activation.select_item(&tree_item);
+        }
+        let Some(node) = kpdb_for_activation.as_ref().as_ref().and_then(|db| db.get_node_by_id(uuid)) else {
+            return;
+        };
+        show_node_view(
+            &content_for_activation,
+            &current_view_for_activation,
+            &node,
+            &tree_for_activation,
+            &kpdb_for_activation,
+            &status_bar_for_activation,
+        );
+        status_bar_for_activation.set_status_text("Node selected", 0);
+    });
+
     sizer.add(&list, 1, SizerFlag::All | SizerFlag::Expand, 4);
     parent.set_sizer(sizer, true);
 }
 
-fn build_node_view(parent: &Panel, node: &NodePtr) {
+fn build_node_view(
+    parent: &Panel,
+    node: &NodePtr,
+    tree: &TreeCtrl,
+    content: &Panel,
+    current_view: &Rc<RefCell<Option<Panel>>>,
+    kpdb: &Rc<Option<KpDb>>,
+    status_bar: &StatusBar,
+) {
     if let Some(entry) = node.borrow().downcast_ref::<Entry>() {
         build_entry_view(parent, entry);
     } else {
-        build_group_view(parent, node);
+        build_group_view(parent, node, tree, content, current_view, kpdb, status_bar);
     }
 }
 
-fn show_node_view(content: &Panel, current_view: &Rc<RefCell<Option<Panel>>>, node: &NodePtr) {
+fn show_node_view(
+    content: &Panel,
+    current_view: &Rc<RefCell<Option<Panel>>>,
+    node: &NodePtr,
+    tree: &TreeCtrl,
+    kpdb: &Rc<Option<KpDb>>,
+    status_bar: &StatusBar,
+) {
     if let Some(old_view) = current_view.borrow_mut().take() {
         old_view.destroy();
     }
     let new_view = Panel::builder(content).build();
-    build_node_view(&new_view, node);
+    build_node_view(&new_view, node, tree, content, current_view, kpdb, status_bar);
     let new_content_sizer = BoxSizer::builder(Orientation::Vertical).build();
     new_content_sizer.add(&new_view, 1, SizerFlag::All | SizerFlag::Expand, 0);
     content.set_sizer(new_content_sizer, true);
@@ -234,6 +311,9 @@ fn main() {
 
         let kpdb_for_selection = Rc::clone(&kpdb);
         let current_view_for_selection = Rc::clone(&current_view);
+        let tree_for_selection = tree;
+        let content_for_selection = content;
+        let status_bar_for_selection = status_bar;
         tree.on_selection_changed(move |event| {
             let Some(item) = event.get_item().or_else(|| tree.get_selection()) else {
                 return;
@@ -247,14 +327,21 @@ fn main() {
             let Some(node) = kpdb_for_selection.as_ref().as_ref().and_then(|db| db.get_node_by_id(*uuid)) else {
                 return;
             };
-            show_node_view(&content, &current_view_for_selection, &node);
+            show_node_view(
+                &content_for_selection,
+                &current_view_for_selection,
+                &node,
+                &tree_for_selection,
+                &kpdb_for_selection,
+                &status_bar_for_selection,
+            );
             status_bar.set_status_text("Node selected", 0);
         });
         if let Some(root_item) = root_item {
             tree.select_item(&root_item);
         }
         if let Some(root) = kpdb.as_ref().as_ref().and_then(KpDb::get_root) {
-            show_node_view(&content, &current_view, &root);
+            show_node_view(&content, &current_view, &root, &tree, &kpdb, &status_bar);
         }
 
         let menu_bar_for_toggle = frame.get_menu_bar().expect("menu bar was just installed");

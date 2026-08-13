@@ -2,7 +2,7 @@
 
 use keepass_ng::{
     Uuid,
-    db::{NodePtr, group_get_children, node_is_group},
+    db::{Entry, Node, NodePtr, group_get_children, node_is_group},
 };
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -56,17 +56,97 @@ fn append_nodes(tree: &TreeCtrl, parent: &TreeItemId, node: &NodePtr) {
     }
 }
 
-fn populate_tree(tree: &TreeCtrl, kpdb: Option<&KpDb>) {
+fn populate_tree(tree: &TreeCtrl, kpdb: Option<&KpDb>) -> Option<TreeItemId> {
     let Some(root) = kpdb.and_then(KpDb::get_root) else {
         tree.add_root("No keepass database loaded", None, None);
-        return;
+        return None;
     };
 
-    let Some(root_item) = tree.add_root_with_data(&node_title(&root), root.borrow().get_uuid(), None, None) else {
-        return;
-    };
+    let root_item = tree.add_root_with_data(&node_title(&root), root.borrow().get_uuid(), None, None)?;
     append_nodes(tree, &root_item, &root);
     tree.expand(&root_item);
+    Some(root_item)
+}
+
+fn add_detail_row(grid: &FlexGridSizer, parent: &Panel, label: &str, value: &str) {
+    let label = StaticText::builder(parent).with_label(label).build();
+    let value = StaticText::builder(parent).with_label(value).build();
+    grid.add(&label, 0, SizerFlag::All, 4);
+    grid.add(&value, 1, SizerFlag::All | SizerFlag::Expand, 4);
+}
+
+fn build_entry_view(parent: &Panel, entry: &Entry) {
+    let sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let title = StaticText::builder(parent)
+        .with_label(entry.get_title().unwrap_or("(no title)"))
+        .build();
+    sizer.add(&title, 0, SizerFlag::All | SizerFlag::Expand, 12);
+
+    let grid = FlexGridSizer::builder(0, 2).with_vgap(4).with_hgap(12).build();
+    add_detail_row(&grid, parent, "Username", entry.get_username().unwrap_or(""));
+    add_detail_row(&grid, parent, "Password", entry.get_password().unwrap_or(""));
+    add_detail_row(&grid, parent, "URL", entry.get_url().unwrap_or(""));
+    add_detail_row(&grid, parent, "Notes", entry.get_notes().unwrap_or(""));
+    if !entry.get_tags().is_empty() {
+        add_detail_row(&grid, parent, "Tags", &entry.get_tags().join(", "));
+    }
+    sizer.add_sizer(&grid, 0, SizerFlag::All | SizerFlag::Expand, 8);
+    parent.set_sizer(sizer, true);
+}
+
+fn build_group_view(parent: &Panel, group: &NodePtr) {
+    let sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let title = StaticText::builder(parent).with_label(&node_title(group)).build();
+    sizer.add(&title, 0, SizerFlag::All | SizerFlag::Expand, 8);
+
+    let list = ListCtrl::builder(parent)
+        .with_style(ListCtrlStyle::Report | ListCtrlStyle::SingleSel | ListCtrlStyle::HRules | ListCtrlStyle::VRules)
+        .build();
+    list.insert_column(0, "Type", ListColumnFormat::Left, 60);
+    list.insert_column(1, "Title", ListColumnFormat::Left, 150);
+    list.insert_column(2, "Username", ListColumnFormat::Left, 140);
+    list.insert_column(3, "URL", ListColumnFormat::Left, 200);
+    list.insert_column(4, "Notes", ListColumnFormat::Left, -1);
+
+    if let Some(children) = group_get_children(group) {
+        for (index, child) in children.iter().enumerate() {
+            let row = index as i64;
+            let kind = if node_is_group(child) { "Group" } else { "Entry" };
+            if list.insert_item(row, kind, None) < 0 {
+                continue;
+            }
+            list.set_item_text_by_column(row, 1, &node_title(child));
+            if let Some(entry) = child.borrow().downcast_ref::<Entry>() {
+                list.set_item_text_by_column(row, 2, entry.get_username().unwrap_or(""));
+                list.set_item_text_by_column(row, 3, entry.get_url().unwrap_or(""));
+                list.set_item_text_by_column(row, 4, entry.get_notes().unwrap_or(""));
+            }
+        }
+    }
+
+    sizer.add(&list, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    parent.set_sizer(sizer, true);
+}
+
+fn build_node_view(parent: &Panel, node: &NodePtr) {
+    if let Some(entry) = node.borrow().downcast_ref::<Entry>() {
+        build_entry_view(parent, entry);
+    } else {
+        build_group_view(parent, node);
+    }
+}
+
+fn show_node_view(content: &Panel, current_view: &Rc<RefCell<Option<Panel>>>, node: &NodePtr) {
+    if let Some(old_view) = current_view.borrow_mut().take() {
+        old_view.destroy();
+    }
+    let new_view = Panel::builder(content).build();
+    build_node_view(&new_view, node);
+    let new_content_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    new_content_sizer.add(&new_view, 1, SizerFlag::All | SizerFlag::Expand, 0);
+    content.set_sizer(new_content_sizer, true);
+    content.layout();
+    *current_view.borrow_mut() = Some(new_view);
 }
 
 fn main() {
@@ -87,8 +167,9 @@ fn main() {
             let key_file = std::env::var("KEY_FILE").ok();
             KpDb::open(&path, password.as_deref(), key_file.as_deref()).ok()
         });
-        if let Some(path) = kpdb.as_ref().and_then(|db| db.db_path.as_deref()) {
-            status_bar.set_status_text(path, 1);
+        let kpdb = Rc::new(kpdb);
+        if let Some(path) = kpdb.as_ref().as_ref().and_then(|db| db.db_path.clone()) {
+            status_bar.set_status_text(&path, 1);
         }
 
         let file_menu = Menu::builder()
@@ -111,12 +192,17 @@ fn main() {
         frame.set_menu_bar(menu_bar);
 
         let content = Panel::builder(&frame).build();
-        let content_sizer = BoxSizer::builder(Orientation::Vertical).build();
-        let details = StaticText::builder(&content)
+        let initial_view = Panel::builder(&content).build();
+        let initial_details = StaticText::builder(&initial_view)
             .with_label("Select an entry or group from the architecture tree.")
             .build();
-        content_sizer.add(&details, 1, SizerFlag::All | SizerFlag::Expand, 12);
+        let initial_sizer = BoxSizer::builder(Orientation::Vertical).build();
+        initial_sizer.add(&initial_details, 1, SizerFlag::All | SizerFlag::Expand, 12);
+        initial_view.set_sizer(initial_sizer, true);
+        let content_sizer = BoxSizer::builder(Orientation::Vertical).build();
+        content_sizer.add(&initial_view, 1, SizerFlag::All | SizerFlag::Expand, 0);
         content.set_sizer(content_sizer, true);
+        let current_view = Rc::new(RefCell::new(Some(initial_view)));
 
         let tree_pane = Panel::builder(&frame).build();
         let tree = TreeCtrl::builder(&tree_pane)
@@ -125,7 +211,7 @@ fn main() {
         let tree_sizer = BoxSizer::builder(Orientation::Vertical).build();
         tree_sizer.add(&tree, 1, SizerFlag::All | SizerFlag::Expand, 4);
         tree_pane.set_sizer(tree_sizer, true);
-        populate_tree(&tree, kpdb.as_ref());
+        let root_item = populate_tree(&tree, kpdb.as_ref().as_ref());
         let exit_requested = Rc::new(Cell::new(false));
 
         let aui = AuiManager::builder(&frame).build();
@@ -146,6 +232,8 @@ fn main() {
         );
         aui.update();
 
+        let kpdb_for_selection = Rc::clone(&kpdb);
+        let current_view_for_selection = Rc::clone(&current_view);
         tree.on_selection_changed(move |event| {
             let Some(item) = event.get_item().or_else(|| tree.get_selection()) else {
                 return;
@@ -156,9 +244,18 @@ fn main() {
             let Some(uuid) = data.downcast_ref::<Uuid>() else {
                 return;
             };
-            details.set_label(&format!("Selected node: {uuid}"));
+            let Some(node) = kpdb_for_selection.as_ref().as_ref().and_then(|db| db.get_node_by_id(*uuid)) else {
+                return;
+            };
+            show_node_view(&content, &current_view_for_selection, &node);
             status_bar.set_status_text("Node selected", 0);
         });
+        if let Some(root_item) = root_item {
+            tree.select_item(&root_item);
+        }
+        if let Some(root) = kpdb.as_ref().as_ref().and_then(KpDb::get_root) {
+            show_node_view(&content, &current_view, &root);
+        }
 
         let menu_bar_for_toggle = frame.get_menu_bar().expect("menu bar was just installed");
         menu_bar_for_toggle.check_item(MENU_TOGGLE_TREE, aui.is_pane_shown(TREE_PANE_NAME));

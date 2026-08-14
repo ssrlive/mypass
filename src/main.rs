@@ -10,6 +10,7 @@ use wxdragon::prelude::*;
 
 pub mod entry_view;
 pub mod error;
+pub mod favicon;
 pub mod group_view;
 pub mod keepass;
 

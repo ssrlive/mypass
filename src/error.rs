@@ -18,6 +18,15 @@ pub enum Error {
     #[error("keepass_ng::Error: {0}")]
     KeepassError(#[from] keepass_ng::Error),
 
+    #[error("HTTP request error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+
+    #[error("URL parse error: {0}")]
+    UrlParse(#[from] url::ParseError),
+
+    #[error("image conversion error: {0}")]
+    Image(#[from] image::ImageError),
+
     #[error("&str error: {0}")]
     Str(String),
 

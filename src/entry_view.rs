@@ -8,7 +8,7 @@ use wxdragon::{
     TimePickerCtrl, WxWidget,
 };
 
-pub fn build_entry_view(parent: &Panel, node: &NodePtr) {
+pub fn build_entry_view(parent: &Panel, node: &NodePtr, refresh: Rc<dyn Fn()>) {
     let Some(entry) = with_node::<Entry, _, _>(node, |entry| entry.clone()) else {
         return;
     };
@@ -18,8 +18,11 @@ pub fn build_entry_view(parent: &Panel, node: &NodePtr) {
     let edit_button = Button::builder(parent).with_label("Edit").with_size(Size::new(85, 34)).build();
     let parent_for_edit = *parent;
     let node_for_edit = node.clone();
+    let refresh_after_edit = Rc::clone(&refresh);
     edit_button.on_click(move |_| {
-        show_entry_editor(&parent_for_edit, &node_for_edit);
+        if show_entry_editor(&parent_for_edit, &node_for_edit) == wxdragon::ID_OK {
+            refresh_after_edit();
+        }
     });
     let header_sizer = BoxSizer::builder(Orientation::Horizontal).build();
     header_sizer.add(&title, 1, SizerFlag::Expand, 0);
@@ -196,9 +199,9 @@ pub fn build_entry_view(parent: &Panel, node: &NodePtr) {
     notebook.navigate(true);
 }
 
-fn show_entry_editor(parent: &Panel, node: &NodePtr) {
+pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr) -> wxdragon::Id {
     let Some(entry) = with_node::<Entry, _, _>(node, |entry| entry.clone()) else {
-        return;
+        return wxdragon::ID_CANCEL;
     };
 
     let dialog = Dialog::builder(parent, "Edit entry").with_size(760, 580).build();
@@ -566,12 +569,14 @@ fn show_entry_editor(parent: &Panel, node: &NodePtr) {
             if let Ok(icon) = icon_id.get_value().parse::<usize>() {
                 entry.set_icon_id(Some(IconId(icon)));
             }
+            entry.update_history();
         });
         dialog_for_ok.end_modal(wxdragon::ID_OK);
     });
     dialog.center();
-    dialog.show_modal();
+    let res = dialog.show_modal();
     dialog.destroy();
+    res
 }
 
 fn format_option_time<T: ToString>(time: Option<T>) -> String {

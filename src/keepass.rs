@@ -122,7 +122,10 @@ fn test_demo_db() {
     let block = || {
         dotenvy::dotenv().ok();
 
-        let db_path = std::env::var("DB_PATH")?;
+        let Ok(db_path) = std::env::var("DB_PATH") else {
+            println!("DB_PATH environment variable not set, skipping test");
+            return Ok::<(), Error>(());
+        };
         let password = std::env::var("PASSWORD").ok();
         let key_file = std::env::var("KEY_FILE").ok();
 

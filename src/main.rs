@@ -105,7 +105,23 @@ fn build_node_view(
     status_bar: &StatusBar,
 ) {
     if node.borrow().downcast_ref::<Entry>().is_some() {
-        entry_view::build_entry_view(parent, node);
+        let content_for_refresh = *content;
+        let current_view_for_refresh = Rc::clone(current_view);
+        let node_for_refresh = node.clone();
+        let tree_for_refresh = *tree;
+        let kpdb_for_refresh = Rc::clone(kpdb);
+        let status_bar_for_refresh = *status_bar;
+        let refresh = Rc::new(move || {
+            show_node_view(
+                &content_for_refresh,
+                &current_view_for_refresh,
+                &node_for_refresh,
+                &tree_for_refresh,
+                &kpdb_for_refresh,
+                &status_bar_for_refresh,
+            );
+        });
+        entry_view::build_entry_view(parent, node, refresh);
     } else {
         group_view::build_group_view(parent, node, tree, content, current_view, kpdb, status_bar);
     }

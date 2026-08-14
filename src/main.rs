@@ -103,8 +103,8 @@ fn build_node_view(
     kpdb: &Rc<Option<KpDb>>,
     status_bar: &StatusBar,
 ) {
-    if let Some(entry) = node.borrow().downcast_ref::<Entry>() {
-        entry_view::build_entry_view(parent, entry);
+    if node.borrow().downcast_ref::<Entry>().is_some() {
+        entry_view::build_entry_view(parent, node);
     } else {
         group_view::build_group_view(parent, node, tree, content, current_view, kpdb, status_bar);
     }
@@ -239,6 +239,7 @@ fn main() {
                 &kpdb_for_selection,
                 &status_bar_for_selection,
             );
+            tree_for_selection.set_focus();
             status_bar.set_status_text("Node selected", 0);
         });
         if let Some(root_item) = root_item {
@@ -246,6 +247,7 @@ fn main() {
         }
         if let Some(root) = kpdb.as_ref().as_ref().and_then(KpDb::get_root) {
             show_node_view(&content, &current_view, &root, &tree, &kpdb, &status_bar);
+            tree.set_focus();
         }
 
         let menu_bar_for_toggle = frame.get_menu_bar().expect("menu bar was just installed");

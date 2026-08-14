@@ -5,6 +5,7 @@ edition = "2024"
 license-file = "LICENSE"
 
 [dependencies]
+chrono = "0.4"
 dotenvy = "0.15.7"
 env_logger = "0.11.11"
 # keepass-ng = { version = "0.11.3", path = "../keepass-ng", features = [

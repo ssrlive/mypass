@@ -1,22 +1,25 @@
 use crate::add_detail_row;
-use keepass_ng::db::{Entry, Node};
+use chrono::{Datelike, Duration, Local, Months, NaiveDate, NaiveDateTime, Timelike};
+use keepass_ng::db::{AutoType, Entry, IconId, Node, NodePtr, with_node, with_node_mut};
 use std::{cell::Cell, rc::Rc};
 use wxdragon::{
-    BoxSizer, Button, ButtonEvents, FlexGridSizer, HyperlinkCtrl, ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog,
-    MessageDialogStyle, Notebook, Orientation, Panel, Size, SizerFlag, StaticText, TextCtrl, TextCtrlStyle, WxWidget,
+    BoxSizer, Button, ButtonEvents, CheckBox, Choice, DatePickerCtrl, DatePickerCtrlStyle, Dialog, FlexGridSizer, HyperlinkCtrl,
+    ListColumnFormat, ListCtrl, ListCtrlStyle, Notebook, Orientation, Panel, Size, SizerFlag, StaticText, TextCtrl, TextCtrlStyle,
+    TimePickerCtrl, WxWidget,
 };
 
-pub fn build_entry_view(parent: &Panel, entry: &Entry) {
+pub fn build_entry_view(parent: &Panel, node: &NodePtr) {
+    let Some(entry) = with_node::<Entry, _, _>(node, |entry| entry.clone()) else {
+        return;
+    };
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     let title_text = entry.get_title().filter(|title| !title.trim().is_empty()).unwrap_or("(no title)");
     let title = StaticText::builder(parent).with_label(title_text).build();
     let edit_button = Button::builder(parent).with_label("Edit").with_size(Size::new(85, 34)).build();
     let parent_for_edit = *parent;
+    let node_for_edit = node.clone();
     edit_button.on_click(move |_| {
-        MessageDialog::builder(&parent_for_edit, "Entry editing is not implemented yet.", "Edit Entry")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build()
-            .show_modal();
+        show_entry_editor(&parent_for_edit, &node_for_edit);
     });
     let header_sizer = BoxSizer::builder(Orientation::Horizontal).build();
     header_sizer.add(&title, 1, SizerFlag::Expand, 0);
@@ -32,31 +35,51 @@ pub fn build_entry_view(parent: &Panel, entry: &Entry) {
     let general_grid = FlexGridSizer::builder(0, 2).with_vgap(8).with_hgap(16).build();
     add_detail_row(&general_grid, &general_page, "Username", entry.get_username().unwrap_or(""));
     let password_label = StaticText::builder(&general_page).with_label("Password").build();
-    let password_controls = BoxSizer::builder(Orientation::Horizontal).build();
     let password = entry.get_password().unwrap_or("").to_owned();
-    let password_value = TextCtrl::builder(&general_page)
+    let password_panel = Panel::builder(&general_page).build();
+    let password_value = TextCtrl::builder(&password_panel)
         .with_value("******")
+        .with_style(TextCtrlStyle::Password | TextCtrlStyle::ReadOnly)
+        .with_size(Size::new(240, 34))
+        .build();
+    let password_visible_value = TextCtrl::builder(&password_panel)
+        .with_value(&password)
         .with_style(TextCtrlStyle::ReadOnly)
         .with_size(Size::new(240, 34))
         .build();
-    let password_toggle = Button::builder(&general_page)
-        .with_label("Show")
-        .with_size(Size::new(85, 34))
+    password_visible_value.show(false);
+    let password_toggle = Button::builder(&password_panel)
+        .with_label("👁")
+        .with_size(Size::new(38, 34))
         .build();
+    password_toggle.set_tooltip("Show or hide password");
     let password_visible = Rc::new(Cell::new(false));
     let password_visible_for_toggle = Rc::clone(&password_visible);
     let password_value_for_toggle = password_value;
-    let password_toggle_for_toggle = password_toggle;
+    let password_visible_value_for_toggle = password_visible_value;
+    let password_panel_for_toggle = password_panel;
     password_toggle.on_click(move |_| {
         let visible = !password_visible_for_toggle.get();
         password_visible_for_toggle.set(visible);
-        password_value_for_toggle.set_value(if visible { &password } else { "******" });
-        password_toggle_for_toggle.set_label(if visible { "Hide" } else { "Show" });
+        if visible {
+            password_visible_value_for_toggle.set_value(&password);
+            password_value_for_toggle.show(false);
+            password_visible_value_for_toggle.show(true);
+        } else {
+            password_value_for_toggle.set_value("******");
+            password_visible_value_for_toggle.show(false);
+            password_value_for_toggle.show(true);
+        }
+        password_panel_for_toggle.layout();
     });
-    password_controls.add(&password_toggle, 0, SizerFlag::AlignCenterVertical, 4);
-    password_controls.add(&password_value, 0, SizerFlag::AlignCenterVertical, 0);
+    let password_controls = BoxSizer::builder(Orientation::Horizontal).build();
+    password_controls.add(&password_value, 1, SizerFlag::All | SizerFlag::Expand, 0);
+    password_controls.add(&password_visible_value, 1, SizerFlag::All | SizerFlag::Expand, 0);
+    password_controls.add(&password_toggle, 0, SizerFlag::All, 4);
+    password_panel.set_sizer(password_controls, true);
     general_grid.add(&password_label, 0, SizerFlag::All | SizerFlag::AlignCenterVertical, 4);
-    general_grid.add_sizer(&password_controls, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    password_panel.set_min_size(Size::new(282, 34));
+    general_grid.add(&password_panel, 1, SizerFlag::All, 4);
     let url_label = StaticText::builder(&general_page).with_label("URL").build();
     general_grid.add(&url_label, 0, SizerFlag::All | SizerFlag::AlignCenterVertical, 4);
     if let Some(url) = entry.get_url().filter(|url| !url.is_empty()) {
@@ -168,4 +191,400 @@ pub fn build_entry_view(parent: &Panel, entry: &Entry) {
     notebook.add_page(&autotype_page, "Autotype", false, None);
     sizer.add(&notebook, 1, SizerFlag::All | SizerFlag::Expand, 0);
     parent.set_sizer(sizer, true);
+    parent.layout();
+    notebook.set_focus();
+    notebook.navigate(true);
+}
+
+fn show_entry_editor(parent: &Panel, node: &NodePtr) {
+    let Some(entry) = with_node::<Entry, _, _>(node, |entry| entry.clone()) else {
+        return;
+    };
+
+    let dialog = Dialog::builder(parent, "Edit entry").with_size(760, 580).build();
+    let dialog_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let notebook = Notebook::builder(&dialog).build();
+
+    let entry_page = Panel::builder(&notebook).build();
+    let entry_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let entry_grid = FlexGridSizer::builder(0, 2).with_vgap(8).with_hgap(12).build();
+    entry_grid.add_growable_col(1, 1);
+    let title = TextCtrl::builder(&entry_page).with_value(entry.get_title().unwrap_or("")).build();
+    let username = TextCtrl::builder(&entry_page)
+        .with_value(entry.get_username().unwrap_or(""))
+        .build();
+    let password_panel = Panel::builder(&entry_page).build();
+    let password_value = entry.get_password().unwrap_or("").to_owned();
+    let password = TextCtrl::builder(&password_panel)
+        .with_value(entry.get_password().unwrap_or(""))
+        .with_style(TextCtrlStyle::Password)
+        .build();
+    let password_visible = TextCtrl::builder(&password_panel).with_value(&password_value).build();
+    password_visible.show(false);
+    let password_toggle = Button::builder(&password_panel)
+        .with_label("👁")
+        .with_size(Size::new(38, 34))
+        .build();
+    password_toggle.set_tooltip("Show or hide password");
+    let password_for_toggle = password;
+    let password_visible_for_toggle = password_visible;
+    let password_panel_for_toggle = password_panel;
+    let password_is_visible = Rc::new(Cell::new(false));
+    let password_is_visible_for_toggle = Rc::clone(&password_is_visible);
+    password_toggle.on_click(move |_| {
+        let is_visible = !password_is_visible_for_toggle.get();
+        if is_visible {
+            password_visible_for_toggle.set_value(&password_for_toggle.get_value());
+            password_for_toggle.show(false);
+            password_visible_for_toggle.show(true);
+        } else {
+            password_for_toggle.set_value(&password_visible_for_toggle.get_value());
+            password_visible_for_toggle.show(false);
+            password_for_toggle.show(true);
+        }
+        password_panel_for_toggle.layout();
+        password_is_visible_for_toggle.set(is_visible);
+    });
+    let password_controls = BoxSizer::builder(Orientation::Horizontal).build();
+    password_controls.add(&password, 1, SizerFlag::All | SizerFlag::Expand, 0);
+    password_controls.add(&password_visible, 1, SizerFlag::All | SizerFlag::Expand, 0);
+    password_controls.add(&password_toggle, 0, SizerFlag::All, 4);
+    password_panel.set_sizer(password_controls, true);
+    let url = TextCtrl::builder(&entry_page).with_value(entry.get_url().unwrap_or("")).build();
+    let tags = TextCtrl::builder(&entry_page).with_value(&entry.get_tags().join(", ")).build();
+    let expires = CheckBox::builder(&entry_page)
+        .with_label("Expires")
+        .with_value(entry.get_times().get_expires())
+        .build();
+    let expiry_datetime = if entry.get_times().get_expires() {
+        entry
+            .get_times()
+            .get_expiry_time()
+            .map(datetime_to_wx)
+            .unwrap_or_else(wxdragon::DateTime::now)
+    } else {
+        wxdragon::DateTime::now()
+    };
+    let expiry_date = DatePickerCtrl::builder(&entry_page)
+        .with_style(DatePickerCtrlStyle::Dropdown | DatePickerCtrlStyle::ShowCentury)
+        .with_value(Some(expiry_datetime.clone()))
+        .build();
+    let expiry_time = TimePickerCtrl::builder(&entry_page).with_value(Some(expiry_datetime)).build();
+    let presets = Choice::builder(&entry_page)
+        .with_choices(vec![
+            "12 hours".to_string(),
+            "24 hours".to_string(),
+            "1 week".to_string(),
+            "2 weeks".to_string(),
+            "3 weeks".to_string(),
+            "1 month".to_string(),
+            "2 months".to_string(),
+            "3 months".to_string(),
+            "6 months".to_string(),
+            "1 year".to_string(),
+            "2 years".to_string(),
+            "3 years".to_string(),
+        ])
+        .build();
+    let expiry_controls_enabled = expires.get_value();
+    expiry_date.enable(expiry_controls_enabled);
+    expiry_time.enable(expiry_controls_enabled);
+    presets.enable(expiry_controls_enabled);
+    let expiry_date_for_toggle = expiry_date;
+    let expiry_time_for_toggle = expiry_time;
+    let presets_for_toggle = presets;
+    expires.on_toggled(move |event| {
+        let enabled = event.is_checked();
+        expiry_date_for_toggle.enable(enabled);
+        expiry_time_for_toggle.enable(enabled);
+        presets_for_toggle.enable(enabled);
+    });
+    let expiry_date_for_preset = expiry_date;
+    let expiry_time_for_preset = expiry_time;
+    presets.on_selection_changed(move |event| {
+        let Some(selection) = event.get_selection() else {
+            return;
+        };
+        let now = Local::now().naive_local();
+        let expiry = match selection {
+            0 => now.checked_add_signed(Duration::hours(12)),
+            1 => now.checked_add_signed(Duration::hours(24)),
+            2 => now.checked_add_signed(Duration::weeks(1)),
+            3 => now.checked_add_signed(Duration::weeks(2)),
+            4 => now.checked_add_signed(Duration::weeks(3)),
+            5 => now.checked_add_months(Months::new(1)),
+            6 => now.checked_add_months(Months::new(2)),
+            7 => now.checked_add_months(Months::new(3)),
+            8 => now.checked_add_months(Months::new(6)),
+            9 => now.checked_add_months(Months::new(12)),
+            10 => now.checked_add_months(Months::new(24)),
+            11 => now.checked_add_months(Months::new(36)),
+            _ => None,
+        };
+        if let Some(expiry) = expiry {
+            let wx_expiry = datetime_to_wx(expiry);
+            expiry_date_for_preset.set_value(&wx_expiry);
+            expiry_time_for_preset.set_value(&wx_expiry);
+        }
+    });
+    let notes = TextCtrl::builder(&entry_page)
+        .with_value(entry.get_notes().unwrap_or(""))
+        .with_style(TextCtrlStyle::MultiLine)
+        .with_size(Size::new(-1, 150))
+        .build();
+    for (label, control) in [("Title", &title), ("Username", &username)] {
+        let label = StaticText::builder(&entry_page).with_label(label).build();
+        entry_grid.add(&label, 0, SizerFlag::All, 4);
+        entry_grid.add(control, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    }
+    let password_label = StaticText::builder(&entry_page).with_label("Password").build();
+    entry_grid.add(&password_label, 0, SizerFlag::All, 4);
+    entry_grid.add(&password_panel, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    for (label, control) in [("URL", &url), ("Tags", &tags)] {
+        let label = StaticText::builder(&entry_page).with_label(label).build();
+        entry_grid.add(&label, 0, SizerFlag::All, 4);
+        entry_grid.add(control, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    }
+    let expires_label = StaticText::builder(&entry_page).with_label("Expires").build();
+    entry_grid.add(&expires_label, 0, SizerFlag::All, 4);
+    let expiry_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+    expiry_sizer.add(&expires, 0, SizerFlag::All, 0);
+    expiry_sizer.add(&expiry_date, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    expiry_sizer.add(&expiry_time, 0, SizerFlag::All, 4);
+    expiry_sizer.add(&presets, 0, SizerFlag::All, 4);
+    entry_grid.add_sizer(&expiry_sizer, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    let notes_label = StaticText::builder(&entry_page).with_label("Notes").build();
+    entry_grid.add(&notes_label, 0, SizerFlag::All, 4);
+    entry_grid.add(&notes, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    entry_sizer.add_sizer(&entry_grid, 1, SizerFlag::All | SizerFlag::Expand, 12);
+    entry_page.set_sizer(entry_sizer, true);
+
+    let advanced_page = Panel::builder(&notebook).build();
+    let advanced_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let attributes = TextCtrl::builder(&advanced_page)
+        .with_value(
+            &entry
+                .additional_attributes()
+                .iter()
+                .map(|(name, value)| format!("{}\n{}\n\n", name, value))
+                .collect::<String>(),
+        )
+        .with_style(TextCtrlStyle::MultiLine)
+        .build();
+    advanced_sizer.add(
+        &StaticText::builder(&advanced_page).with_label("Additional attributes").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    advanced_sizer.add(&attributes, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    let attachments = ListCtrl::builder(&advanced_page)
+        .with_style(ListCtrlStyle::Report | ListCtrlStyle::VRules | ListCtrlStyle::HRules)
+        .build();
+    attachments.insert_column(0, "Name", ListColumnFormat::Left, 240);
+    attachments.insert_column(1, "Size", ListColumnFormat::Right, -1);
+    for (index, name) in entry.attachments.keys().enumerate() {
+        let row = index as i64;
+        if let Some(attachment) = entry.attachments.get(name)
+            && attachments.insert_item(row, name, None) >= 0
+        {
+            attachments.set_item_text_by_column(row, 1, &format!("{} bytes", attachment.data.get().len()));
+        }
+    }
+    advanced_sizer.add(
+        &StaticText::builder(&advanced_page).with_label("Attachments").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    advanced_sizer.add(&attachments, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    advanced_page.set_sizer(advanced_sizer, true);
+
+    let icon_page = Panel::builder(&notebook).build();
+    let icon_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let icon_id = TextCtrl::builder(&icon_page)
+        .with_value(&entry.get_icon_id().map(|icon| icon.0.to_string()).unwrap_or_default())
+        .build();
+    icon_sizer.add(&StaticText::builder(&icon_page).with_label("Icon ID").build(), 0, SizerFlag::All, 4);
+    icon_sizer.add(&icon_id, 0, SizerFlag::All | SizerFlag::Expand, 4);
+    icon_sizer.add(
+        &StaticText::builder(&icon_page).with_label("Built-in icon number (0-68)").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    icon_page.set_sizer(icon_sizer, true);
+
+    let autotype_page = Panel::builder(&notebook).build();
+    let autotype_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let autotype = entry.get_autotype();
+    let autotype_enabled = CheckBox::builder(&autotype_page)
+        .with_label("Enable Auto-Type for this entry")
+        .with_value(autotype.map(|value| value.enabled).unwrap_or(false))
+        .build();
+    let default_sequence = TextCtrl::builder(&autotype_page)
+        .with_value(autotype.and_then(|value| value.default_sequence.as_deref()).unwrap_or(""))
+        .build();
+    autotype_sizer.add(&autotype_enabled, 0, SizerFlag::All, 4);
+    autotype_sizer.add(
+        &StaticText::builder(&autotype_page).with_label("Default sequence").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    autotype_sizer.add(&default_sequence, 0, SizerFlag::All | SizerFlag::Expand, 4);
+    autotype_sizer.add(
+        &StaticText::builder(&autotype_page).with_label("Window associations").build(),
+        0,
+        SizerFlag::All,
+        8,
+    );
+    let associations = ListCtrl::builder(&autotype_page)
+        .with_style(ListCtrlStyle::Report | ListCtrlStyle::VRules | ListCtrlStyle::HRules)
+        .build();
+    associations.insert_column(0, "Window", ListColumnFormat::Left, 260);
+    associations.insert_column(1, "Sequence", ListColumnFormat::Left, -1);
+    if let Some(autotype) = autotype {
+        for (index, association) in autotype.associations.iter().enumerate() {
+            let row = index as i64;
+            if associations.insert_item(row, association.window.as_deref().unwrap_or(""), None) >= 0 {
+                associations.set_item_text_by_column(row, 1, association.sequence.as_deref().unwrap_or(""));
+            }
+        }
+    }
+    autotype_sizer.add(&associations, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    autotype_page.set_sizer(autotype_sizer, true);
+
+    let properties_page = Panel::builder(&notebook).build();
+    let properties_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let properties_grid = FlexGridSizer::builder(0, 2).with_vgap(8).with_hgap(12).build();
+    add_detail_row(
+        &properties_grid,
+        &properties_page,
+        "Created",
+        &format_option_time(entry.get_times().get_creation()),
+    );
+    add_detail_row(
+        &properties_grid,
+        &properties_page,
+        "Modified",
+        &format_option_time(entry.get_times().get_last_modification()),
+    );
+    add_detail_row(
+        &properties_grid,
+        &properties_page,
+        "Last accessed",
+        &format_option_time(entry.get_times().get_last_access()),
+    );
+    add_detail_row(&properties_grid, &properties_page, "UUID", &entry.get_uuid().to_string());
+    add_detail_row(
+        &properties_grid,
+        &properties_page,
+        "Usage count",
+        &entry.get_times().get_usage_count().to_string(),
+    );
+    properties_sizer.add_sizer(&properties_grid, 0, SizerFlag::All | SizerFlag::Expand, 12);
+    properties_page.set_sizer(properties_sizer, true);
+
+    notebook.add_page(&entry_page, "Entry", true, None);
+    notebook.add_page(&advanced_page, "Advanced", false, None);
+    notebook.add_page(&icon_page, "Icon", false, None);
+    notebook.add_page(&autotype_page, "Auto-Type", false, None);
+    notebook.add_page(&properties_page, "Properties", false, None);
+    dialog_sizer.add(&notebook, 1, SizerFlag::All | SizerFlag::Expand, 8);
+
+    let button_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+    let button_spacer = StaticText::builder(&dialog).with_label("").build();
+    let cancel = Button::builder(&dialog).with_label("Cancel").build();
+    let ok = Button::builder(&dialog).with_label("OK").build();
+    button_sizer.add(&button_spacer, 1, SizerFlag::Expand, 0);
+    button_sizer.add(&cancel, 0, SizerFlag::All, 4);
+    button_sizer.add(&ok, 0, SizerFlag::All, 4);
+    dialog_sizer.add_sizer(&button_sizer, 0, SizerFlag::All | SizerFlag::Expand, 8);
+    dialog.set_sizer(dialog_sizer, true);
+
+    let dialog_for_cancel = dialog;
+    cancel.on_click(move |_| dialog_for_cancel.end_modal(wxdragon::ID_CANCEL));
+    let dialog_for_ok = dialog;
+    let node_for_ok = node.clone();
+    ok.on_click(move |_| {
+        with_node_mut::<Entry, _, _>(&node_for_ok, |entry| {
+            let title_value = title.get_value();
+            let username_value = username.get_value();
+            let password_value = if password_is_visible.get() {
+                password_visible.get_value()
+            } else {
+                password.get_value()
+            };
+            let url_value = url.get_value();
+            let notes_value = notes.get_value();
+            entry.set_title(if title_value.trim().is_empty() { None } else { Some(&title_value) });
+            entry.set_username(Some(&username_value));
+            entry.set_password(Some(&password_value));
+            entry.set_url(Some(&url_value));
+            entry.set_notes(Some(&notes_value));
+            entry.get_tags_mut().clear();
+            entry.get_tags_mut().extend(
+                tags.get_value()
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|tag| !tag.is_empty())
+                    .map(str::to_owned),
+            );
+            let expires_value = expires.get_value();
+            entry.get_times_mut().set_expires(expires_value);
+            if expires_value {
+                let selected_date = expiry_date.get_value();
+                let selected_time = expiry_time.get_value();
+                if let Some(expiry_date) =
+                    NaiveDate::from_ymd_opt(selected_date.year(), selected_date.month() as u32, selected_date.day() as u32).and_then(
+                        |date| {
+                            date.and_hms_opt(
+                                selected_time.hour() as u32,
+                                selected_time.minute() as u32,
+                                selected_time.second() as u32,
+                            )
+                        },
+                    )
+                {
+                    entry.get_times_mut().set_expiry_time(Some(expiry_date));
+                }
+            } else {
+                entry.get_times_mut().set_expiry_time(None);
+            }
+            let default_sequence_value = default_sequence.get_value();
+            let auto_type = AutoType {
+                enabled: autotype_enabled.get_value(),
+                default_sequence: if default_sequence_value.trim().is_empty() {
+                    None
+                } else {
+                    Some(default_sequence_value)
+                },
+                ..entry.get_autotype().cloned().unwrap_or_default()
+            };
+            entry.set_autotype(Some(auto_type));
+            if let Ok(icon) = icon_id.get_value().parse::<usize>() {
+                entry.set_icon_id(Some(IconId(icon)));
+            }
+        });
+        dialog_for_ok.end_modal(wxdragon::ID_OK);
+    });
+    dialog.center();
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+fn format_option_time<T: ToString>(time: Option<T>) -> String {
+    time.map(|time| time.to_string()).unwrap_or_default()
+}
+
+fn datetime_to_wx(time: NaiveDateTime) -> wxdragon::DateTime {
+    wxdragon::DateTime::new(
+        time.year(),
+        time.month() as u16,
+        time.day() as i16,
+        time.hour() as i16,
+        time.minute() as i16,
+        time.second() as i16,
+    )
 }

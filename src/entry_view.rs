@@ -776,8 +776,16 @@ fn format_option_time<T: ToString>(time: Option<T>) -> String {
     time.map(|time| time.to_string()).unwrap_or_default()
 }
 
-fn bitmap_for_icon(data: &[u8], size: u32) -> Option<Bitmap> {
+pub(crate) fn bitmap_for_icon(data: &[u8], size: u32) -> Option<Bitmap> {
     let image = image_from_bytes(data).ok()?.thumbnail(size, size);
+    let rgba = image.to_rgba8();
+    Bitmap::from_rgba(rgba.as_raw(), rgba.width(), rgba.height())
+}
+
+pub(crate) fn bitmap_for_icon_fixed(data: &[u8], size: u32) -> Option<Bitmap> {
+    let image = image_from_bytes(data)
+        .ok()?
+        .resize_exact(size, size, image::imageops::FilterType::Lanczos3);
     let rgba = image.to_rgba8();
     Bitmap::from_rgba(rgba.as_raw(), rgba.width(), rgba.height())
 }

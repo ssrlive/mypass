@@ -1,12 +1,12 @@
-use crate::{find_tree_item, keepass::KpDb, node_title, show_node_view};
+use crate::{entry_view::bitmap_for_icon, entry_view::bitmap_for_icon_fixed, find_tree_item, keepass::KpDb, node_title, show_node_view};
 use keepass_ng::{
     Uuid,
-    db::{Entry, Node, NodePtr, group_get_children, node_is_group},
+    db::{Entry, Icon, Node, NodePtr, group_get_children, node_is_group},
 };
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::{
-    BoxSizer, Button, ButtonEvents, HasItemData, ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog, MessageDialogStyle, Orientation,
-    Panel, Size, SizerFlag, StaticText, StatusBar, TreeCtrl, WxWidget,
+    BoxSizer, Button, ButtonEvents, HasItemData, ImageList, ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog, MessageDialogStyle,
+    Orientation, Panel, Size, SizerFlag, StaticBitmap, StaticText, StatusBar, TreeCtrl, WxWidget, image_list_type,
 };
 
 pub fn build_group_view(
@@ -29,6 +29,34 @@ pub fn build_group_view(
             .show_modal();
     });
     let header_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+    match group.borrow().get_icon() {
+        Icon::BuiltIn(icon_id) => {
+            let group_icon = StaticText::builder(parent).with_label(&icon_id.to_string()).build();
+            if let Some(font) = wxdragon::Font::builder().with_point_size(20).build() {
+                group_icon.set_font(&font);
+            }
+            group_icon.set_tooltip(&format!("Built-in icon {icon_id}"));
+            header_sizer.add(&group_icon, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
+        }
+        Icon::Custom(uuid) => {
+            let custom_icon = kpdb
+                .borrow()
+                .as_ref()
+                .and_then(|db| db.db.as_ref())
+                .and_then(|db| db.meta.custom_icon(uuid))
+                .cloned();
+            if let Some(custom_icon) = custom_icon
+                && let Some(bitmap) = bitmap_for_icon(&custom_icon.data, 28)
+            {
+                let group_icon = StaticBitmap::builder(parent)
+                    .with_bitmap(Some(bitmap))
+                    .with_size(Size::new(32, 32))
+                    .build();
+                group_icon.set_tooltip(custom_icon.name().unwrap_or("Custom icon"));
+                header_sizer.add(&group_icon, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
+            }
+        }
+    }
     header_sizer.add(&title, 1, SizerFlag::Expand, 0);
     let header_spacer = StaticText::builder(parent).with_label("").build();
     header_sizer.add(&header_spacer, 1, SizerFlag::Expand, 0);
@@ -38,34 +66,56 @@ pub fn build_group_view(
     let list = ListCtrl::builder(parent)
         .with_style(ListCtrlStyle::Report | ListCtrlStyle::SingleSel | ListCtrlStyle::HRules | ListCtrlStyle::VRules)
         .build();
-    list.insert_column(0, "Type", ListColumnFormat::Left, 60);
-    list.insert_column(1, "Title", ListColumnFormat::Left, 150);
-    list.insert_column(2, "Username", ListColumnFormat::Left, 140);
-    list.insert_column(3, "URL", ListColumnFormat::Left, 200);
-    list.insert_column(4, "Last Modified", ListColumnFormat::Left, 140);
-    list.insert_column(5, "Notes", ListColumnFormat::Left, -1);
+    let image_list = ImageList::new(20, 20, false, 0);
+    let children = group_get_children(group).unwrap_or_default();
+    let mut row_icons = Vec::with_capacity(children.len());
+    for child in &children {
+        let child_icon = child.borrow().get_icon();
+        let (icon_label, image_index) = match child_icon {
+            Icon::BuiltIn(icon_id) => (icon_id.to_string(), None),
+            Icon::Custom(uuid) => {
+                let image_index = kpdb
+                    .borrow()
+                    .as_ref()
+                    .and_then(|db| db.db.as_ref())
+                    .and_then(|db| db.meta.custom_icon(uuid))
+                    .and_then(|icon| bitmap_for_icon_fixed(&icon.data, 20))
+                    .map(|bitmap| image_list.add_bitmap(&bitmap));
+                (String::new(), image_index)
+            }
+        };
+        row_icons.push((icon_label, image_index));
+    }
+    list.set_image_list(image_list, image_list_type::SMALL);
+    list.insert_column(0, "Icon", ListColumnFormat::Left, 36);
+    list.insert_column(1, "Type", ListColumnFormat::Left, 60);
+    list.insert_column(2, "Title", ListColumnFormat::Left, 150);
+    list.insert_column(3, "Username", ListColumnFormat::Left, 140);
+    list.insert_column(4, "URL", ListColumnFormat::Left, 200);
+    list.insert_column(5, "Last Modified", ListColumnFormat::Left, 140);
+    list.insert_column(6, "Notes", ListColumnFormat::Left, -1);
 
-    if let Some(children) = group_get_children(group) {
-        for (index, child) in children.iter().enumerate() {
-            let row = index as i64;
-            let kind = if node_is_group(child) { "Group" } else { "Entry" };
-            if list.insert_item(row, kind, None) < 0 {
-                continue;
-            }
-            list.set_custom_data(row as u64, child.borrow().get_uuid());
-            list.set_item_text_by_column(row, 1, &node_title(child));
-            let last_modified = child
-                .borrow()
-                .get_times()
-                .get_last_modification()
-                .map(|time| time.format("%Y-%m-%d %H:%M:%S").to_string())
-                .unwrap_or_default();
-            list.set_item_text_by_column(row, 4, &last_modified);
-            if let Some(entry) = child.borrow().downcast_ref::<Entry>() {
-                list.set_item_text_by_column(row, 2, entry.get_username().unwrap_or(""));
-                list.set_item_text_by_column(row, 3, entry.get_url().unwrap_or(""));
-                list.set_item_text_by_column(row, 5, entry.get_notes().unwrap_or(""));
-            }
+    for (index, child) in children.iter().enumerate() {
+        let row = index as i64;
+        let (icon_label, image_index) = &row_icons[index];
+        let kind = if node_is_group(child) { "Group" } else { "Entry" };
+        if list.insert_item(row, icon_label, *image_index) < 0 {
+            continue;
+        }
+        list.set_item_text_by_column(row, 1, kind);
+        list.set_custom_data(row as u64, child.borrow().get_uuid());
+        list.set_item_text_by_column(row, 2, &node_title(child));
+        let last_modified = child
+            .borrow()
+            .get_times()
+            .get_last_modification()
+            .map(|time| time.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_default();
+        list.set_item_text_by_column(row, 5, &last_modified);
+        if let Some(entry) = child.borrow().downcast_ref::<Entry>() {
+            list.set_item_text_by_column(row, 3, entry.get_username().unwrap_or(""));
+            list.set_item_text_by_column(row, 4, entry.get_url().unwrap_or(""));
+            list.set_item_text_by_column(row, 6, entry.get_notes().unwrap_or(""));
         }
     }
 

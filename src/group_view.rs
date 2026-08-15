@@ -1,12 +1,13 @@
 use crate::{entry_view::bitmap_for_icon, entry_view::bitmap_for_icon_fixed, find_tree_item, keepass::KpDb, node_title, show_node_view};
 use keepass_ng::{
     Uuid,
-    db::{Entry, Icon, Node, NodePtr, group_get_children, node_is_group},
+    db::{Entry, Group, Icon, IconId, Node, NodePtr, group_get_children, node_is_group, with_node, with_node_mut},
 };
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::{
-    BoxSizer, Button, ButtonEvents, HasItemData, ImageList, ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog, MessageDialogStyle,
-    Orientation, Panel, Size, SizerFlag, StaticBitmap, StaticText, StatusBar, TreeCtrl, WxWidget, image_list_type,
+    BoxSizer, Button, ButtonEvents, CheckBox, FlexGridSizer, HasItemData, ImageList, ListColumnFormat, ListCtrl, ListCtrlStyle, Notebook,
+    Orientation, Panel, ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, StatusBar, TextCtrl, TextCtrlStyle,
+    TreeCtrl, WxWidget, image_list_type,
 };
 
 pub fn build_group_view(
@@ -22,11 +23,23 @@ pub fn build_group_view(
     let title = StaticText::builder(parent).with_label(&node_title(group)).build();
     let edit_button = Button::builder(parent).with_label("Edit").with_size(Size::new(85, 34)).build();
     let parent_for_edit = *parent;
+    let group_for_edit = group.clone();
+    let kpdb_for_edit = Rc::clone(kpdb);
+    let tree_for_refresh = *tree;
+    let content_for_refresh = *content;
+    let current_view_for_refresh = Rc::clone(current_view);
+    let status_bar_for_refresh = *status_bar;
     edit_button.on_click(move |_| {
-        MessageDialog::builder(&parent_for_edit, "Group editing is not implemented yet.", "Edit Group")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build()
-            .show_modal();
+        if show_group_editor(&parent_for_edit, &group_for_edit, Rc::clone(&kpdb_for_edit)) == wxdragon::ID_OK {
+            show_node_view(
+                &content_for_refresh,
+                &current_view_for_refresh,
+                &group_for_edit,
+                &tree_for_refresh,
+                &kpdb_for_edit,
+                &status_bar_for_refresh,
+            );
+        }
     });
     let header_sizer = BoxSizer::builder(Orientation::Horizontal).build();
     match group.borrow().get_icon() {
@@ -157,4 +170,271 @@ pub fn build_group_view(
 
     sizer.add(&list, 1, SizerFlag::All | SizerFlag::Expand, 4);
     parent.set_sizer(sizer, true);
+}
+
+fn show_group_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell<Option<KpDb>>>) -> wxdragon::Id {
+    let Some(group) = with_node::<Group, _, _>(node, |group| group.clone()) else {
+        return wxdragon::ID_CANCEL;
+    };
+
+    let dialog = wxdragon::Dialog::builder(parent, "Edit Group").with_size(760, 580).build();
+    dialog.set_min_size(Size::new(760, 580));
+    let dialog_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let notebook = Notebook::builder(&dialog).build();
+
+    let group_page = Panel::builder(&notebook).build();
+    let group_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let group_grid = FlexGridSizer::builder(0, 2).with_vgap(8).with_hgap(12).build();
+    group_grid.add_growable_col(1, 1);
+    let name = TextCtrl::builder(&group_page).with_value(group.get_title().unwrap_or("")).build();
+    let notes = TextCtrl::builder(&group_page)
+        .with_value(group.get_notes().unwrap_or(""))
+        .with_style(TextCtrlStyle::MultiLine)
+        .with_size(Size::new(-1, 150))
+        .build();
+    let expires = CheckBox::builder(&group_page)
+        .with_label("Expires")
+        .with_value(group.get_times().get_expires())
+        .build();
+    let search_inheritance = CheckBox::builder(&group_page)
+        .with_label("Search settings are inherited from parent")
+        .with_value(true)
+        .build();
+    search_inheritance.enable(false);
+    let autotype_inheritance = CheckBox::builder(&group_page)
+        .with_label("Auto-Type settings are inherited from parent")
+        .with_value(true)
+        .build();
+    autotype_inheritance.enable(false);
+    group_grid.add(&StaticText::builder(&group_page).with_label("Name").build(), 0, SizerFlag::All, 4);
+    group_grid.add(&name, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    group_grid.add(&StaticText::builder(&group_page).with_label("Notes").build(), 0, SizerFlag::All, 4);
+    group_grid.add(&notes, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    group_grid.add(
+        &StaticText::builder(&group_page).with_label("Expiration").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    group_grid.add(&expires, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    group_grid.add(&StaticText::builder(&group_page).with_label("Search").build(), 0, SizerFlag::All, 4);
+    group_grid.add(&search_inheritance, 1, SizerFlag::All, 4);
+    group_grid.add(
+        &StaticText::builder(&group_page).with_label("Auto-Type").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    group_grid.add(&autotype_inheritance, 1, SizerFlag::All, 4);
+    group_sizer.add_sizer(&group_grid, 0, SizerFlag::All | SizerFlag::Expand, 12);
+    group_sizer.add(
+        &StaticText::builder(&group_page)
+            .with_label("Inheritance options are shown for compatibility; this database library currently exposes them as read-only.")
+            .build(),
+        0,
+        SizerFlag::All,
+        12,
+    );
+    group_page.set_sizer(group_sizer, true);
+
+    let icon_page = Panel::builder(&notebook).build();
+    let icon_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let selected_icon = Rc::new(std::cell::Cell::new(group.get_icon()));
+    let icon_buttons = Rc::new(RefCell::new(Vec::<(Button, Icon)>::new()));
+    let selected_label = StaticText::builder(&icon_page).with_label("").build();
+    let selected_background = wxdragon::Colour::rgb(198, 224, 180);
+    let default_background = wxdragon::Colour::rgb(255, 255, 255);
+    icon_sizer.add(
+        &StaticText::builder(&icon_page).with_label("Built-in icons").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    let built_in_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    const ICONS_PER_ROW: usize = 15;
+    for row_start in (0..IconId::count()).step_by(ICONS_PER_ROW) {
+        let row = BoxSizer::builder(Orientation::Horizontal).build();
+        for icon_number in row_start..(row_start + ICONS_PER_ROW).min(IconId::count()) {
+            let icon_number: IconId = icon_number.try_into().unwrap_or(IconId::KEY);
+            let button = Button::builder(&icon_page)
+                .with_label(&icon_number.to_string())
+                .with_size(Size::new(36, 36))
+                .build();
+            if let Some(font) = wxdragon::Font::builder().with_point_size(18).build() {
+                button.set_font(&font);
+            }
+            let icon = Icon::BuiltIn(icon_number);
+            let buttons_for_click = Rc::clone(&icon_buttons);
+            let selected_for_click = Rc::clone(&selected_icon);
+            let label_for_click = selected_label;
+            button.on_click(move |_| {
+                selected_for_click.set(icon);
+                for (candidate, candidate_icon) in buttons_for_click.borrow().iter() {
+                    candidate.set_background_color(if *candidate_icon == icon {
+                        selected_background
+                    } else {
+                        default_background
+                    });
+                }
+                label_for_click.set_label(&format!("Selected built-in icon {icon_number}"));
+            });
+            icon_buttons.borrow_mut().push((button, icon));
+            row.add(&button, 0, SizerFlag::All, 2);
+        }
+        built_in_sizer.add_sizer(&row, 0, SizerFlag::All, 0);
+    }
+    icon_sizer.add_sizer(&built_in_sizer, 0, SizerFlag::All, 4);
+    icon_sizer.add(
+        &StaticText::builder(&icon_page).with_label("Custom icons in this database").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    let custom_scroll = ScrolledWindow::builder(&icon_page).with_style(ScrolledWindowStyle::VScroll).build();
+    custom_scroll.set_scroll_rate(0, 20);
+    custom_scroll.enable_scrolling(false, true);
+    let custom_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let mut custom_rows = Vec::<BoxSizer>::new();
+    const CUSTOM_ICONS_PER_ROW: usize = 15;
+    let custom_icons = kpdb
+        .borrow()
+        .as_ref()
+        .and_then(|db| db.db.as_ref())
+        .map(|db| {
+            db.meta
+                .custom_icons()
+                .map(|(uuid, icon)| (*uuid, icon.data.clone(), icon.name().unwrap_or("Custom icon").to_owned()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for (index, (uuid, data, icon_name)) in custom_icons.into_iter().enumerate() {
+        let button = Button::builder(&custom_scroll).with_size(Size::new(42, 36)).build();
+        if let Some(bitmap) = bitmap_for_icon(&data, 28) {
+            button.set_bitmap_label(&bitmap);
+        }
+        button.set_tooltip(&icon_name);
+        let icon = Icon::Custom(uuid);
+        let buttons_for_click = Rc::clone(&icon_buttons);
+        let selected_for_click = Rc::clone(&selected_icon);
+        let label_for_click = selected_label;
+        button.on_click(move |_| {
+            selected_for_click.set(icon);
+            for (candidate, candidate_icon) in buttons_for_click.borrow().iter() {
+                candidate.set_background_color(if *candidate_icon == icon {
+                    selected_background
+                } else {
+                    default_background
+                });
+            }
+            label_for_click.set_label(&format!("Selected custom icon {uuid}"));
+        });
+        icon_buttons.borrow_mut().push((button, icon));
+        let row_index = index / CUSTOM_ICONS_PER_ROW;
+        let row = if let Some(row) = custom_rows.get(row_index).copied() {
+            row
+        } else {
+            let row = BoxSizer::builder(Orientation::Horizontal).build();
+            custom_sizer.add_sizer(&row, 0, SizerFlag::All, 0);
+            custom_rows.push(row);
+            row
+        };
+        row.add(&button, 0, SizerFlag::All, 2);
+    }
+    custom_scroll.set_sizer(custom_sizer, true);
+    icon_sizer.add(&custom_scroll, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    icon_sizer.add(&selected_label, 0, SizerFlag::All, 4);
+    icon_page.set_sizer(icon_sizer, true);
+    let current_icon = selected_icon.get();
+    for (button, icon) in icon_buttons.borrow().iter() {
+        button.set_background_color(if *icon == current_icon {
+            selected_background
+        } else {
+            default_background
+        });
+    }
+    selected_label.set_label(&format!("Selected icon {current_icon:?}"));
+
+    let properties_page = Panel::builder(&notebook).build();
+    let properties_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let properties_grid = FlexGridSizer::builder(0, 2).with_vgap(8).with_hgap(12).build();
+    let created = group.get_times().get_creation().map(|time| time.to_string()).unwrap_or_default();
+    let modified = group.get_times().get_last_modification().map(|t| t.to_string()).unwrap_or_default();
+    for (label, value) in [("Created", created), ("Modified", modified), ("UUID", group.get_uuid().to_string())] {
+        properties_grid.add(
+            &StaticText::builder(&properties_page).with_label(label).build(),
+            0,
+            SizerFlag::All,
+            4,
+        );
+        properties_grid.add(
+            &TextCtrl::builder(&properties_page)
+                .with_value(&value)
+                .with_style(TextCtrlStyle::ReadOnly)
+                .with_size(Size::new(400, 28))
+                .build(),
+            1,
+            SizerFlag::All | SizerFlag::Expand,
+            4,
+        );
+    }
+    properties_sizer.add_sizer(&properties_grid, 0, SizerFlag::All | SizerFlag::Expand, 12);
+    let custom_data = ListCtrl::builder(&properties_page)
+        .with_style(ListCtrlStyle::Report | ListCtrlStyle::SingleSel | ListCtrlStyle::VRules | ListCtrlStyle::HRules)
+        .build();
+    custom_data.insert_column(0, "Key", ListColumnFormat::Left, 240);
+    custom_data.insert_column(1, "Value", ListColumnFormat::Left, -1);
+    let mut custom_items: Vec<_> = group.custom_data().iter().collect();
+    custom_items.sort_by(|left, right| left.0.cmp(right.0));
+    for (index, (key, item)) in custom_items.iter().enumerate() {
+        if custom_data.insert_item(index as i64, key, None) >= 0 {
+            custom_data.set_item_text_by_column(index as i64, 1, &format!("{item:?}"));
+        }
+    }
+    properties_sizer.add(
+        &StaticText::builder(&properties_page).with_label("Plugin Data").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    properties_sizer.add(&custom_data, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    properties_page.set_sizer(properties_sizer, true);
+
+    notebook.add_page(&group_page, "Group", true, None);
+    notebook.add_page(&icon_page, "Icon", false, None);
+    notebook.add_page(&properties_page, "Properties", false, None);
+    dialog_sizer.add(&notebook, 1, SizerFlag::All | SizerFlag::Expand, 8);
+    let button_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+    let spacer = StaticText::builder(&dialog).with_label("").build();
+    let cancel = Button::builder(&dialog).with_label("Cancel").build();
+    let ok = Button::builder(&dialog).with_label("OK").build();
+    button_sizer.add(&spacer, 1, SizerFlag::Expand, 0);
+    button_sizer.add(&cancel, 0, SizerFlag::All, 4);
+    button_sizer.add(&ok, 0, SizerFlag::All, 4);
+    dialog_sizer.add_sizer(&button_sizer, 0, SizerFlag::All | SizerFlag::Expand, 8);
+    dialog.set_sizer(dialog_sizer, true);
+
+    let dialog_for_cancel = dialog;
+    cancel.on_click(move |_| dialog_for_cancel.end_modal(wxdragon::ID_CANCEL));
+    let dialog_for_ok = dialog;
+    let node_for_ok = node.clone();
+    let selected_icon_for_ok = Rc::clone(&selected_icon);
+    ok.on_click(move |_| {
+        let name_value = name.get_value();
+        let notes_value = notes.get_value();
+        with_node_mut::<Group, _, _>(&node_for_ok, |group| {
+            group.set_title(if name_value.trim().is_empty() { None } else { Some(&name_value) });
+            group.set_notes(Some(&notes_value));
+            group.set_icon(selected_icon_for_ok.get());
+            group.get_times_mut().set_expires(expires.get_value());
+            group.get_times_mut().set_last_modification(Some(keepass_ng::db::Times::now()));
+        });
+        if let Some(db) = kpdb.borrow_mut().as_mut() {
+            db.mark_data_changed();
+        }
+        dialog_for_ok.end_modal(wxdragon::ID_OK);
+    });
+    dialog.center();
+    let result = dialog.show_modal();
+    dialog.destroy();
+    result
 }

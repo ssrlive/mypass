@@ -135,6 +135,11 @@ fn show_node_view(
     kpdb: &Rc<RefCell<Option<KpDb>>>,
     status_bar: &StatusBar,
 ) {
+    if let Some(root_item) = tree.get_root_item()
+        && let Some(tree_item) = find_tree_item(tree, &root_item, node.borrow().get_uuid())
+    {
+        tree.set_item_text(&tree_item, &node_title(node));
+    }
     if let Some(old_view) = current_view.borrow_mut().take() {
         old_view.destroy();
     }

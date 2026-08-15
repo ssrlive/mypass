@@ -3,6 +3,7 @@ use regex::Regex;
 use reqwest::blocking::Client;
 use std::io::Cursor;
 use std::path::Path;
+use std::time::Duration;
 use url::Url;
 
 const DEFAULT_FAVICON_PATH: &str = "/favicon.ico";
@@ -77,7 +78,10 @@ pub struct FaviconDownloader {
 impl FaviconDownloader {
     pub fn new() -> Result<Self> {
         Ok(Self {
-            client: Client::builder().user_agent("mypass favicon downloader").build()?,
+            client: Client::builder()
+                .user_agent("mypass favicon downloader")
+                .timeout(Duration::from_secs(10))
+                .build()?,
         })
     }
 

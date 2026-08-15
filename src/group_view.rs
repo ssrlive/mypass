@@ -15,7 +15,7 @@ pub fn build_group_view(
     tree: &TreeCtrl,
     content: &Panel,
     current_view: &Rc<RefCell<Option<Panel>>>,
-    kpdb: &Rc<Option<KpDb>>,
+    kpdb: &Rc<RefCell<Option<KpDb>>>,
     status_bar: &StatusBar,
 ) {
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -91,7 +91,7 @@ pub fn build_group_view(
         {
             tree_for_activation.select_item(&tree_item);
         }
-        let Some(node) = kpdb_for_activation.as_ref().as_ref().and_then(|db| db.get_node_by_id(uuid)) else {
+        let Some(node) = kpdb_for_activation.borrow().as_ref().and_then(|db| db.get_node_by_id(uuid)) else {
             return;
         };
         show_node_view(

@@ -101,7 +101,7 @@ fn build_node_view(
     tree: &TreeCtrl,
     content: &Panel,
     current_view: &Rc<RefCell<Option<Panel>>>,
-    kpdb: &Rc<Option<KpDb>>,
+    kpdb: &Rc<RefCell<Option<KpDb>>>,
     status_bar: &StatusBar,
 ) {
     if node.borrow().downcast_ref::<Entry>().is_some() {
@@ -121,7 +121,7 @@ fn build_node_view(
                 &status_bar_for_refresh,
             );
         });
-        entry_view::build_entry_view(parent, node, refresh);
+        entry_view::build_entry_view(parent, node, refresh, Rc::clone(kpdb));
     } else {
         group_view::build_group_view(parent, node, tree, content, current_view, kpdb, status_bar);
     }
@@ -132,7 +132,7 @@ fn show_node_view(
     current_view: &Rc<RefCell<Option<Panel>>>,
     node: &NodePtr,
     tree: &TreeCtrl,
-    kpdb: &Rc<Option<KpDb>>,
+    kpdb: &Rc<RefCell<Option<KpDb>>>,
     status_bar: &StatusBar,
 ) {
     if let Some(old_view) = current_view.borrow_mut().take() {
@@ -165,8 +165,8 @@ fn main() {
             let key_file = std::env::var("KEY_FILE").ok();
             KpDb::open(&path, password.as_deref(), key_file.as_deref()).ok()
         });
-        let kpdb = Rc::new(kpdb);
-        if let Some(path) = kpdb.as_ref().as_ref().and_then(|db| db.db_path.clone()) {
+        let kpdb = Rc::new(RefCell::new(kpdb));
+        if let Some(path) = kpdb.borrow().as_ref().and_then(|db| db.db_path.clone()) {
             status_bar.set_status_text(&path, 1);
         }
 
@@ -209,7 +209,7 @@ fn main() {
         let tree_sizer = BoxSizer::builder(Orientation::Vertical).build();
         tree_sizer.add(&tree, 1, SizerFlag::All | SizerFlag::Expand, 4);
         tree_pane.set_sizer(tree_sizer, true);
-        let root_item = populate_tree(&tree, kpdb.as_ref().as_ref());
+        let root_item = populate_tree(&tree, kpdb.borrow().as_ref());
         let exit_requested = Rc::new(Cell::new(false));
 
         let aui = AuiManager::builder(&frame).build();
@@ -245,7 +245,7 @@ fn main() {
             let Some(uuid) = data.downcast_ref::<Uuid>() else {
                 return;
             };
-            let Some(node) = kpdb_for_selection.as_ref().as_ref().and_then(|db| db.get_node_by_id(*uuid)) else {
+            let Some(node) = kpdb_for_selection.borrow().as_ref().and_then(|db| db.get_node_by_id(*uuid)) else {
                 return;
             };
             show_node_view(
@@ -262,7 +262,7 @@ fn main() {
         if let Some(root_item) = root_item {
             tree.select_item(&root_item);
         }
-        if let Some(root) = kpdb.as_ref().as_ref().and_then(KpDb::get_root) {
+        if let Some(root) = kpdb.borrow().as_ref().and_then(KpDb::get_root) {
             show_node_view(&content, &current_view, &root, &tree, &kpdb, &status_bar);
             tree.set_focus();
         }

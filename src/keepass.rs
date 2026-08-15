@@ -1,4 +1,5 @@
 use crate::error::Result;
+use chrono::Local;
 use keepass_ng::{
     DatabaseConfig, DatabaseKey, Uuid,
     db::{self, Database, Group, NodePtr, group_get_children, node_is_group, search_node_by_uuid},
@@ -112,6 +113,18 @@ impl KpDb {
 
     pub fn get_node_by_id(&self, id: Uuid) -> Option<db::NodePtr> {
         self.get_root().and_then(|root| search_node_by_uuid(&root, id))
+    }
+
+    pub fn add_custom_icon(&mut self, data: Vec<u8>, source_url: String) -> Result<Uuid> {
+        let db = self.db.as_mut().ok_or("No database")?;
+        if let Some((uuid, _)) = db.meta.custom_icons().find(|(_, icon)| icon.name() == Some(&source_url)) {
+            return Ok(*uuid);
+        }
+        let uuid = Uuid::new_v4();
+        let last_modification_time = Some(Local::now().naive_local());
+        let icon = db::CustomIcon::new(uuid, Some(source_url), last_modification_time, data);
+        db.meta.insert_custom_icon(icon);
+        Ok(uuid)
     }
 }
 

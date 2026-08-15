@@ -9,8 +9,8 @@ use std::{
 };
 use wxdragon::{
     Bitmap, BoxSizer, Button, ButtonEvents, CheckBox, Choice, DatePickerCtrl, DatePickerCtrlStyle, Dialog, FlexGridSizer, HyperlinkCtrl,
-    ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog, MessageDialogStyle, Notebook, Orientation, Panel, Size, SizerFlag,
-    StaticBitmap, StaticText, TextCtrl, TextCtrlStyle, TimePickerCtrl, WxWidget,
+    ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog, MessageDialogStyle, Notebook, Orientation, Panel, ScrolledWindow,
+    ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, TextCtrl, TextCtrlStyle, TimePickerCtrl, WxWidget,
 };
 
 pub fn build_entry_view(parent: &Panel, node: &NodePtr, refresh: Rc<dyn Fn()>, kpdb: Rc<RefCell<Option<KpDb>>>) {
@@ -458,9 +458,10 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
         4,
     );
     let built_in_sizer = BoxSizer::builder(Orientation::Vertical).build();
-    for row_start in (0..IconId::count()).step_by(10) {
+    const ICONS_PER_ROW: usize = 15;
+    for row_start in (0..IconId::count()).step_by(ICONS_PER_ROW) {
         let row = BoxSizer::builder(Orientation::Horizontal).build();
-        for icon_number in row_start..(row_start + 10).min(IconId::count()) {
+        for icon_number in row_start..(row_start + ICONS_PER_ROW).min(IconId::count()) {
             let icon_number: IconId = icon_number.try_into().unwrap_or(IconId::KEY);
             let button = Button::builder(&icon_page)
                 .with_label(&icon_number.to_string())
@@ -498,12 +499,17 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
         SizerFlag::All,
         4,
     );
+    let custom_icon_scroll = ScrolledWindow::builder(&icon_page).with_style(ScrolledWindowStyle::VScroll).build();
+    custom_icon_scroll.set_scroll_rate(0, 20);
+    custom_icon_scroll.enable_scrolling(false, true);
     let custom_icon_sizer = BoxSizer::builder(Orientation::Vertical).build();
-    let custom_icon_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let custom_icon_sizer_for_buttons = custom_icon_sizer;
+    let custom_icon_rows = Rc::new(RefCell::new(Vec::<BoxSizer>::new()));
+    let custom_icon_count = Rc::new(Cell::new(0usize));
     let icon_buttons_for_custom_icons = Rc::clone(&icon_buttons);
     let selected_icon_for_custom_icons = Rc::clone(&selected_icon);
     let add_custom_icon_button = move |uuid, data: &[u8], name: Option<&str>| {
-        let button = Button::builder(&icon_page).with_size(Size::new(42, 36)).build();
+        let button = Button::builder(&custom_icon_scroll).with_size(Size::new(42, 36)).build();
         if let Some(bitmap) = bitmap_for_icon(data, 28) {
             button.set_bitmap_label(&bitmap);
         }
@@ -525,15 +531,26 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
             selected_label_for_button.set_label(&format!("Selected custom icon {uuid}"));
         });
         icon_buttons_for_custom_icons.borrow_mut().push((button, icon));
-        custom_icon_row.add(&button, 0, SizerFlag::All, 2);
+        let icon_index = custom_icon_count.get();
+        let row_index = icon_index / ICONS_PER_ROW;
+        let row = if let Some(row) = custom_icon_rows.borrow().get(row_index).copied() {
+            row
+        } else {
+            let row = BoxSizer::builder(Orientation::Horizontal).build();
+            custom_icon_sizer_for_buttons.add_sizer(&row, 0, SizerFlag::All, 0);
+            custom_icon_rows.borrow_mut().push(row);
+            row
+        };
+        row.add(&button, 0, SizerFlag::All, 2);
+        custom_icon_count.set(icon_index + 1);
     };
     if let Some(db) = kpdb.borrow().as_ref().and_then(|db| db.db.as_ref()) {
         for (uuid, icon) in db.meta.custom_icons() {
             add_custom_icon_button(*uuid, &icon.data, icon.name());
         }
     }
-    custom_icon_sizer.add_sizer(&custom_icon_row, 0, SizerFlag::All, 0);
-    icon_sizer.add_sizer(&custom_icon_sizer, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    custom_icon_scroll.set_sizer(custom_icon_sizer, true);
+    icon_sizer.add(&custom_icon_scroll, 1, SizerFlag::All | SizerFlag::Expand, 4);
     icon_sizer.add(&selected_icon_label, 0, SizerFlag::All, 4);
     icon_page.set_sizer(icon_sizer, true);
 
@@ -587,6 +604,7 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
                         let name = icon.name().map(str::to_owned);
                         add_custom_icon_button(uuid, &data, name.as_deref());
                     }
+                    custom_icon_scroll.layout();
                     icon_page.layout();
                 }
                 selected_icon_for_download.set(Icon::Custom(uuid));

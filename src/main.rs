@@ -147,6 +147,16 @@ fn show_node_view(
     *current_view.borrow_mut() = Some(new_view);
 }
 
+fn save_if_data_changed(kpdb: &Rc<RefCell<Option<KpDb>>>) -> Result<(), String> {
+    let mut kpdb = kpdb.borrow_mut();
+    let db = kpdb.as_mut().ok_or("No database loaded")?;
+    if !db.is_data_changed() {
+        return Ok(());
+    }
+    db.save().map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 fn main() {
     dotenvy::dotenv().ok();
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
@@ -271,10 +281,21 @@ fn main() {
         menu_bar_for_toggle.check_item(MENU_TOGGLE_TREE, aui.is_pane_shown(TREE_PANE_NAME));
 
         let menu_exit_requested = Rc::clone(&exit_requested);
+        let kpdb_for_menu = Rc::clone(&kpdb);
         frame.on_menu(move |event| match event.get_id() {
             MENU_OPEN => status_bar.set_status_text("Open is not implemented yet", 0),
-            MENU_SAVE => status_bar.set_status_text("Save is not implemented yet", 0),
+            MENU_SAVE => match save_if_data_changed(&kpdb_for_menu) {
+                Ok(()) => status_bar.set_status_text("Database saved", 0),
+                Err(error) => status_bar.set_status_text(&format!("Save failed: {error}"), 0),
+            },
             MENU_EXIT => {
+                if let Err(error) = save_if_data_changed(&kpdb_for_menu) {
+                    MessageDialog::builder(&frame, &format!("Could not save database: {error}"), "Save failed")
+                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+                        .build()
+                        .show_modal();
+                    return;
+                }
                 menu_exit_requested.set(true);
                 frame.close(false);
             }
@@ -362,6 +383,7 @@ fn main() {
         frame.centre();
 
         let close_exit_requested = Rc::clone(&exit_requested);
+        let kpdb_for_close = Rc::clone(&kpdb);
         let aui_for_close = aui;
         frame.on_close(move |evt| {
             if let wxdragon::WindowEventData::General(event) = &evt
@@ -378,6 +400,16 @@ fn main() {
                     event.veto();
                     return;
                 }
+            }
+            if let Err(error) = save_if_data_changed(&kpdb_for_close) {
+                MessageDialog::builder(&frame, &format!("Could not save database: {error}"), "Save failed")
+                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+                    .build()
+                    .show_modal();
+                if let wxdragon::WindowEventData::General(event) = &evt {
+                    event.veto();
+                }
+                return;
             }
             close_exit_requested.set(true);
             aui_for_close.uninit();

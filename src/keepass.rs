@@ -4,7 +4,10 @@ use keepass_ng::{
     DatabaseConfig, DatabaseKey, Uuid,
     db::{self, Database, Group, NodePtr, group_get_children, node_is_group, search_node_by_uuid},
 };
-use std::fs::File;
+use std::{
+    fs::{self, File},
+    path::PathBuf,
+};
 
 #[derive(Debug)]
 pub struct KpDb {
@@ -12,6 +15,7 @@ pub struct KpDb {
     pub db_path: Option<String>,
     pub password: Option<String>,
     pub key_file: Option<String>,
+    data_changed: bool,
 }
 
 impl Default for KpDb {
@@ -21,6 +25,7 @@ impl Default for KpDb {
             db_path: None,
             password: None,
             key_file: None,
+            data_changed: false,
         }
     }
 }
@@ -45,6 +50,29 @@ impl KpDb {
         Ok(kpdb)
     }
 
+    pub fn save(&mut self) -> Result<()> {
+        let db = self.db.as_ref().ok_or("No database")?;
+        let db_path = self.db_path.as_deref().ok_or("Database path is not set")?;
+        let db_path = std::path::Path::new(db_path);
+        let mut temporary_path = PathBuf::from(db_path);
+        temporary_path.set_extension("kdbx.tmp");
+        let mut file = File::create(&temporary_path)?;
+        db.save(&mut file, self.build_db_key()?).map_err(|error| error.to_string())?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(temporary_path, db_path)?;
+        self.data_changed = false;
+        Ok(())
+    }
+
+    pub fn is_data_changed(&self) -> bool {
+        self.data_changed
+    }
+
+    pub fn mark_data_changed(&mut self) {
+        self.data_changed = true;
+    }
+
     fn build_db_key(&self) -> Result<DatabaseKey> {
         let mut key_file = self.key_file.as_ref().and_then(|f| File::open(f).ok());
         let key_file = key_file.as_mut().map(|kf| kf as &mut dyn std::io::Read);
@@ -66,6 +94,7 @@ impl KpDb {
         let db = self.db.as_mut().ok_or("No database")?;
         let node = db.remove_node_by_uuid(uuid)?;
         log::trace!("node: {:?} deleted", node.borrow().get_title());
+        self.mark_data_changed();
         Ok(())
     }
 
@@ -73,6 +102,7 @@ impl KpDb {
         let db = self.db.as_ref().ok_or("No database")?;
         let group = db.create_new_group(parent, 0)?;
         log::trace!("group: {:?} added", group.borrow().get_uuid());
+        self.mark_data_changed();
         Ok(group)
     }
 
@@ -80,6 +110,7 @@ impl KpDb {
         let db = self.db.as_ref().ok_or("No database")?;
         let entry = db.create_new_entry(parent, 0)?;
         log::trace!("entry: {:?} added", entry.borrow().get_uuid());
+        self.mark_data_changed();
         Ok(entry)
     }
 
@@ -124,6 +155,7 @@ impl KpDb {
         let last_modification_time = Some(Local::now().naive_local());
         let icon = db::CustomIcon::new(uuid, Some(source_url), last_modification_time, data);
         db.meta.insert_custom_icon(icon);
+        self.mark_data_changed();
         Ok(uuid)
     }
 }

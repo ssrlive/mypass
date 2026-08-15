@@ -552,6 +552,7 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
 
     let url_for_download = url;
     let parent_for_download = icon_page;
+    let kpdb_for_download = Rc::clone(&kpdb);
     let selected_icon_for_download = Rc::clone(&selected_icon);
     let selected_label_for_download = selected_icon_label;
     download_favicon.on_click(move |_| {
@@ -566,7 +567,7 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
             });
         match result {
             Ok((png_bytes, source_url)) => {
-                let Some(uuid) = kpdb
+                let Some(uuid) = kpdb_for_download
                     .borrow_mut()
                     .as_mut()
                     .and_then(|db| db.add_custom_icon(png_bytes, source_url).ok())
@@ -577,7 +578,7 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
                         .show_modal();
                     return;
                 };
-                if let Some(db) = kpdb.borrow().as_ref().and_then(|db| db.db.as_ref())
+                if let Some(db) = kpdb_for_download.borrow().as_ref().and_then(|db| db.db.as_ref())
                     && let Some(icon) = db.meta.custom_icon(uuid)
                 {
                     let already_added = icon_buttons.borrow().iter().any(|(_, icon)| *icon == Icon::Custom(uuid));
@@ -760,6 +761,9 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
             entry.set_icon(selected_icon_value);
             entry.update_history();
         });
+        if let Some(db) = kpdb.borrow_mut().as_mut() {
+            db.mark_data_changed();
+        }
         dialog_for_ok.end_modal(wxdragon::ID_OK);
     });
     dialog.center();

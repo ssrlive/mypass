@@ -8,12 +8,12 @@ use std::{
     rc::Rc,
 };
 use wxdragon::{
-    Bitmap, BoxSizer, Button, ButtonEvents, CheckBox, Choice, DatePickerCtrl, DatePickerCtrlStyle, Dialog, FlexGridSizer, HyperlinkCtrl,
-    ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog, MessageDialogStyle, Notebook, Orientation, Panel, ScrolledWindow,
-    ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, TextCtrl, TextCtrlStyle, TimePickerCtrl, WxWidget,
+    Bitmap, BoxSizer, Button, ButtonEvents, CheckBox, Choice, DatePickerCtrl, DatePickerCtrlStyle, Dialog, FlexGridSizer, Frame,
+    HyperlinkCtrl, ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog, MessageDialogStyle, Notebook, Orientation, Panel,
+    ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, TextCtrl, TextCtrlStyle, TimePickerCtrl, WxWidget,
 };
 
-pub fn build_entry_view(parent: &Panel, node: &NodePtr, refresh: Rc<dyn Fn()>, kpdb: Rc<RefCell<Option<KpDb>>>) {
+pub fn build_entry_view(parent: &Panel, frame: Frame, node: &NodePtr, refresh: Rc<dyn Fn()>, kpdb: Rc<RefCell<Option<KpDb>>>) {
     let Some(entry) = with_node::<Entry, _, _>(node, |entry| entry.clone()) else {
         return;
     };
@@ -21,12 +21,11 @@ pub fn build_entry_view(parent: &Panel, node: &NodePtr, refresh: Rc<dyn Fn()>, k
     let title_text = entry.get_title().filter(|title| !title.trim().is_empty()).unwrap_or("(no title)");
     let title = StaticText::builder(parent).with_label(title_text).build();
     let edit_button = Button::builder(parent).with_label("Edit").with_size(Size::new(85, 34)).build();
-    let parent_for_edit = *parent;
     let node_for_edit = node.clone();
     let refresh_after_edit = Rc::clone(&refresh);
     let kpdb_for_edit = Rc::clone(&kpdb);
     edit_button.on_click(move |_| {
-        if show_entry_editor(&parent_for_edit, &node_for_edit, Rc::clone(&kpdb_for_edit)) == wxdragon::ID_OK {
+        if show_entry_editor(&frame, &node_for_edit, Rc::clone(&kpdb_for_edit)) == wxdragon::ID_OK {
             refresh_after_edit();
         }
     });
@@ -706,13 +705,14 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
 
     let button_sizer = BoxSizer::builder(Orientation::Horizontal).build();
     let button_spacer = StaticText::builder(&dialog).with_label("").build();
-    let cancel = Button::builder(&dialog).with_label("Cancel").build();
+    let cancel = Button::builder(&dialog).with_id(wxdragon::ID_CANCEL).with_label("Cancel").build();
     let ok = Button::builder(&dialog).with_label("OK").build();
     button_sizer.add(&button_spacer, 1, SizerFlag::Expand, 0);
     button_sizer.add(&cancel, 0, SizerFlag::All, 4);
     button_sizer.add(&ok, 0, SizerFlag::All, 4);
     dialog_sizer.add_sizer(&button_sizer, 0, SizerFlag::All | SizerFlag::Expand, 8);
     dialog.set_sizer(dialog_sizer, true);
+    dialog.set_escape_id(wxdragon::ID_CANCEL);
 
     let dialog_for_cancel = dialog;
     cancel.on_click(move |_| dialog_for_cancel.end_modal(wxdragon::ID_CANCEL));

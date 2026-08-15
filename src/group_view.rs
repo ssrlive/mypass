@@ -5,13 +5,15 @@ use keepass_ng::{
 };
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::{
-    BoxSizer, Button, ButtonEvents, CheckBox, FlexGridSizer, HasItemData, ImageList, ListColumnFormat, ListCtrl, ListCtrlStyle, Notebook,
-    Orientation, Panel, ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, StatusBar, TextCtrl, TextCtrlStyle,
-    TreeCtrl, WxWidget, image_list_type,
+    BoxSizer, Button, ButtonEvents, CheckBox, FlexGridSizer, Frame, HasItemData, ImageList, ListColumnFormat, ListCtrl, ListCtrlStyle,
+    Notebook, Orientation, Panel, ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, StatusBar, TextCtrl,
+    TextCtrlStyle, TreeCtrl, WxWidget, image_list_type,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_group_view(
     parent: &Panel,
+    frame: Frame,
     group: &NodePtr,
     tree: &TreeCtrl,
     content: &Panel,
@@ -22,7 +24,6 @@ pub fn build_group_view(
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
     let title = StaticText::builder(parent).with_label(&node_title(group)).build();
     let edit_button = Button::builder(parent).with_label("Edit").with_size(Size::new(85, 34)).build();
-    let parent_for_edit = *parent;
     let group_for_edit = group.clone();
     let kpdb_for_edit = Rc::clone(kpdb);
     let tree_for_refresh = *tree;
@@ -30,9 +31,10 @@ pub fn build_group_view(
     let current_view_for_refresh = Rc::clone(current_view);
     let status_bar_for_refresh = *status_bar;
     edit_button.on_click(move |_| {
-        if show_group_editor(&parent_for_edit, &group_for_edit, Rc::clone(&kpdb_for_edit)) == wxdragon::ID_OK {
+        if show_group_editor(&frame, &group_for_edit, Rc::clone(&kpdb_for_edit)) == wxdragon::ID_OK {
             show_node_view(
                 &content_for_refresh,
+                frame,
                 &current_view_for_refresh,
                 &group_for_edit,
                 &tree_for_refresh,
@@ -159,6 +161,7 @@ pub fn build_group_view(
         };
         show_node_view(
             &content_for_activation,
+            frame,
             &current_view_for_activation,
             &node,
             &tree_for_activation,
@@ -172,7 +175,7 @@ pub fn build_group_view(
     parent.set_sizer(sizer, true);
 }
 
-fn show_group_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell<Option<KpDb>>>) -> wxdragon::Id {
+pub(crate) fn show_group_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell<Option<KpDb>>>) -> wxdragon::Id {
     let Some(group) = with_node::<Group, _, _>(node, |group| group.clone()) else {
         return wxdragon::ID_CANCEL;
     };
@@ -405,13 +408,14 @@ fn show_group_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell<Opt
     dialog_sizer.add(&notebook, 1, SizerFlag::All | SizerFlag::Expand, 8);
     let button_sizer = BoxSizer::builder(Orientation::Horizontal).build();
     let spacer = StaticText::builder(&dialog).with_label("").build();
-    let cancel = Button::builder(&dialog).with_label("Cancel").build();
+    let cancel = Button::builder(&dialog).with_id(wxdragon::ID_CANCEL).with_label("Cancel").build();
     let ok = Button::builder(&dialog).with_label("OK").build();
     button_sizer.add(&spacer, 1, SizerFlag::Expand, 0);
     button_sizer.add(&cancel, 0, SizerFlag::All, 4);
     button_sizer.add(&ok, 0, SizerFlag::All, 4);
     dialog_sizer.add_sizer(&button_sizer, 0, SizerFlag::All | SizerFlag::Expand, 8);
     dialog.set_sizer(dialog_sizer, true);
+    dialog.set_escape_id(wxdragon::ID_CANCEL);
 
     let dialog_for_cancel = dialog;
     cancel.on_click(move |_| dialog_for_cancel.end_modal(wxdragon::ID_CANCEL));

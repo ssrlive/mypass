@@ -95,8 +95,10 @@ fn find_tree_item(tree: &TreeCtrl, item: &TreeItemId, uuid: Uuid) -> Option<Tree
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_node_view(
     parent: &Panel,
+    frame: Frame,
     node: &NodePtr,
     tree: &TreeCtrl,
     content: &Panel,
@@ -114,6 +116,7 @@ fn build_node_view(
         let refresh = Rc::new(move || {
             show_node_view(
                 &content_for_refresh,
+                frame,
                 &current_view_for_refresh,
                 &node_for_refresh,
                 &tree_for_refresh,
@@ -121,14 +124,15 @@ fn build_node_view(
                 &status_bar_for_refresh,
             );
         });
-        entry_view::build_entry_view(parent, node, refresh, Rc::clone(kpdb));
+        entry_view::build_entry_view(parent, frame, node, refresh, Rc::clone(kpdb));
     } else {
-        group_view::build_group_view(parent, node, tree, content, current_view, kpdb, status_bar);
+        group_view::build_group_view(parent, frame, node, tree, content, current_view, kpdb, status_bar);
     }
 }
 
 fn show_node_view(
     content: &Panel,
+    frame: Frame,
     current_view: &Rc<RefCell<Option<Panel>>>,
     node: &NodePtr,
     tree: &TreeCtrl,
@@ -144,12 +148,40 @@ fn show_node_view(
         old_view.destroy();
     }
     let new_view = Panel::builder(content).build();
-    build_node_view(&new_view, node, tree, content, current_view, kpdb, status_bar);
+    build_node_view(&new_view, frame, node, tree, content, current_view, kpdb, status_bar);
     let new_content_sizer = BoxSizer::builder(Orientation::Vertical).build();
     new_content_sizer.add(&new_view, 1, SizerFlag::All | SizerFlag::Expand, 0);
     content.set_sizer(new_content_sizer, true);
     content.layout();
     *current_view.borrow_mut() = Some(new_view);
+}
+
+fn show_node_editor_from_tree(
+    frame: Frame,
+    tree: &TreeCtrl,
+    item: &TreeItemId,
+    kpdb: &Rc<RefCell<Option<KpDb>>>,
+    content: &Panel,
+    current_view: &Rc<RefCell<Option<Panel>>>,
+    status_bar: &StatusBar,
+) {
+    let Some(data) = tree.get_custom_data(item) else {
+        return;
+    };
+    let Some(uuid) = data.downcast_ref::<Uuid>() else {
+        return;
+    };
+    let Some(node) = kpdb.borrow().as_ref().and_then(|db| db.get_node_by_id(*uuid)) else {
+        return;
+    };
+    let result = if node_is_group(&node) {
+        group_view::show_group_editor(&frame, &node, Rc::clone(kpdb))
+    } else {
+        entry_view::show_entry_editor(&frame, &node, Rc::clone(kpdb))
+    };
+    if result == wxdragon::ID_OK {
+        show_node_view(content, frame, current_view, &node, tree, kpdb, status_bar);
+    }
 }
 
 fn save_if_data_changed(kpdb: &Rc<RefCell<Option<KpDb>>>) -> Result<(), String> {
@@ -265,6 +297,7 @@ fn main() {
             };
             show_node_view(
                 &content_for_selection,
+                frame,
                 &current_view_for_selection,
                 &node,
                 &tree_for_selection,
@@ -274,11 +307,71 @@ fn main() {
             tree_for_selection.set_focus();
             status_bar.set_status_text("Node selected", 0);
         });
+
+        let enter_edit_requested = Rc::new(Cell::new(false));
+        let enter_edit_requested_for_key = Rc::clone(&enter_edit_requested);
+        let tree_for_key = tree;
+        let kpdb_for_key = Rc::clone(&kpdb);
+        let content_for_key = content;
+        let current_view_for_key = Rc::clone(&current_view);
+        let status_bar_for_key = status_bar;
+        tree.on_key_down(move |event| {
+            if let wxdragon::WindowEventData::Keyboard(key_event) = event
+                && key_event.get_key_code() == Some(13)
+                && let Some(item) = tree_for_key.get_selection()
+            {
+                enter_edit_requested_for_key.set(true);
+                show_node_editor_from_tree(
+                    frame,
+                    &tree_for_key,
+                    &item,
+                    &kpdb_for_key,
+                    &content_for_key,
+                    &current_view_for_key,
+                    &status_bar_for_key,
+                );
+            }
+        });
+
+        let enter_edit_requested_for_activation = Rc::clone(&enter_edit_requested);
+        let tree_for_activation = tree;
+        let kpdb_for_activation = Rc::clone(&kpdb);
+        let content_for_activation = content;
+        let current_view_for_activation = Rc::clone(&current_view);
+        let status_bar_for_activation = status_bar;
+        tree.on_item_activated(move |event| {
+            if enter_edit_requested_for_activation.replace(false) {
+                return;
+            }
+            let Some(item) = event.get_item() else {
+                return;
+            };
+            let Some(data) = tree_for_activation.get_custom_data(&item) else {
+                return;
+            };
+            let Some(uuid) = data.downcast_ref::<Uuid>() else {
+                return;
+            };
+            let Some(node) = kpdb_for_activation.borrow().as_ref().and_then(|db| db.get_node_by_id(*uuid)) else {
+                return;
+            };
+            if !node_is_group(&node) {
+                show_node_editor_from_tree(
+                    frame,
+                    &tree_for_activation,
+                    &item,
+                    &kpdb_for_activation,
+                    &content_for_activation,
+                    &current_view_for_activation,
+                    &status_bar_for_activation,
+                );
+            }
+        });
         if let Some(root_item) = root_item {
             tree.select_item(&root_item);
         }
         if let Some(root) = kpdb.borrow().as_ref().and_then(KpDb::get_root) {
-            show_node_view(&content, &current_view, &root, &tree, &kpdb, &status_bar);
+            show_node_view(&content, frame, &current_view, &root, &tree, &kpdb, &status_bar);
             tree.set_focus();
         }
 

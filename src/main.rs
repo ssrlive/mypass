@@ -25,6 +25,10 @@ const MENU_SETTINGS: i32 = 2100;
 const MENU_TOGGLE_TREE: i32 = 2101;
 const MENU_TOGGLE_SHOW: i32 = 2102;
 const MENU_ABOUT: i32 = 2201;
+const MENU_TREE_NEW_GROUP: i32 = 2301;
+const MENU_TREE_NEW_ENTRY: i32 = 2302;
+const MENU_TREE_EDIT: i32 = 2303;
+const MENU_TREE_DELETE: i32 = 2304;
 
 #[allow(dead_code)]
 struct TrayState {
@@ -90,6 +94,16 @@ fn append_nodes(tree: &TreeCtrl, parent: &TreeItemId, node: &NodePtr, kpdb: Opti
             append_nodes(tree, &item, &child, kpdb);
         }
     }
+}
+
+fn append_node(tree: &TreeCtrl, parent: &TreeItemId, node: &NodePtr, kpdb: Option<&KpDb>) -> Option<TreeItemId> {
+    let uuid = node.borrow().get_uuid();
+    let image_index = node_icon_index(tree, node, kpdb);
+    let item = tree.append_item_with_data(parent, &tree_node_title(node), uuid, image_index, image_index)?;
+    if node_is_group(node) {
+        append_nodes(tree, &item, node, kpdb);
+    }
+    Some(item)
 }
 
 fn populate_tree(tree: &TreeCtrl, kpdb: Option<&KpDb>) -> Option<TreeItemId> {
@@ -225,6 +239,31 @@ fn show_node_editor_from_tree(
     if result == wxdragon::ID_OK {
         show_node_view(content, frame, current_view, &node, tree, kpdb, status_bar);
     }
+}
+
+fn refresh_tree(
+    frame: Frame,
+    tree: &TreeCtrl,
+    kpdb: &Rc<RefCell<Option<KpDb>>>,
+    content: &Panel,
+    current_view: &Rc<RefCell<Option<Panel>>>,
+    status_bar: &StatusBar,
+    selected_uuid: Option<Uuid>,
+) {
+    tree.delete_all_items();
+    let root_item = populate_tree(tree, kpdb.borrow().as_ref());
+    let Some(root) = kpdb.borrow().as_ref().and_then(KpDb::get_root) else {
+        return;
+    };
+    let selected_node = selected_uuid
+        .and_then(|uuid| kpdb.borrow().as_ref().and_then(|db| db.get_node_by_id(uuid)))
+        .unwrap_or_else(|| root.clone());
+    if let Some(root_item) = root_item
+        && let Some(selected_item) = find_tree_item(tree, &root_item, selected_node.borrow().get_uuid())
+    {
+        tree.select_item(&selected_item);
+    }
+    show_node_view(content, frame, current_view, &selected_node, tree, kpdb, status_bar);
 }
 
 fn save_if_data_changed(frame: Frame, kpdb: &Rc<RefCell<Option<KpDb>>>) -> Result<(), String> {
@@ -556,8 +595,10 @@ fn main() {
             status_bar.set_status_text("Node selected", 0);
         });
 
+        let context_node = Rc::new(Cell::new(None::<Uuid>));
         let enter_edit_requested = Rc::new(Cell::new(false));
         let enter_edit_requested_for_key = Rc::clone(&enter_edit_requested);
+        let context_node_for_key = Rc::clone(&context_node);
         let tree_for_key = tree;
         let kpdb_for_key = Rc::clone(&kpdb);
         let content_for_key = content;
@@ -565,19 +606,26 @@ fn main() {
         let status_bar_for_key = status_bar;
         tree.on_key_down(move |event| {
             if let wxdragon::WindowEventData::Keyboard(key_event) = event
-                && key_event.get_key_code() == Some(13)
+                && (key_event.get_key_code() == Some(13) || key_event.get_key_code() == Some(127))
                 && let Some(item) = tree_for_key.get_selection()
             {
-                enter_edit_requested_for_key.set(true);
-                show_node_editor_from_tree(
-                    frame,
-                    &tree_for_key,
-                    &item,
-                    &kpdb_for_key,
-                    &content_for_key,
-                    &current_view_for_key,
-                    &status_bar_for_key,
-                );
+                if key_event.get_key_code() == Some(13) {
+                    enter_edit_requested_for_key.set(true);
+                    show_node_editor_from_tree(
+                        frame,
+                        &tree_for_key,
+                        &item,
+                        &kpdb_for_key,
+                        &content_for_key,
+                        &current_view_for_key,
+                        &status_bar_for_key,
+                    );
+                } else if let Some(data) = tree_for_key.get_custom_data(&item)
+                    && let Some(uuid) = data.downcast_ref::<Uuid>()
+                {
+                    context_node_for_key.set(Some(*uuid));
+                    frame.process_menu_command(MENU_TREE_DELETE);
+                }
             }
         });
 
@@ -615,6 +663,45 @@ fn main() {
                 );
             }
         });
+
+        let context_node_for_tree = Rc::clone(&context_node);
+        let tree_for_context = tree;
+        let kpdb_for_context = Rc::clone(&kpdb);
+        tree.on_item_right_click(move |event| {
+            let Some(item) = event.get_item() else {
+                return;
+            };
+            let Some(data) = tree_for_context.get_custom_data(&item) else {
+                return;
+            };
+            let Some(uuid) = data.downcast_ref::<Uuid>() else {
+                return;
+            };
+            context_node_for_tree.set(Some(*uuid));
+            tree_for_context.select_item(&item);
+
+            let is_group = kpdb_for_context
+                .borrow()
+                .as_ref()
+                .and_then(|db| db.get_node_by_id(*uuid))
+                .map(|node| node_is_group(&node))
+                .unwrap_or(false);
+            let mut menu = if is_group {
+                Menu::builder()
+                    .append_item(MENU_TREE_NEW_GROUP, "New Group", "Create a new group")
+                    .append_item(MENU_TREE_NEW_ENTRY, "New Entry", "Create a new entry")
+                    .append_separator()
+                    .append_item(MENU_TREE_EDIT, "Edit", "Edit this node")
+                    .append_item(MENU_TREE_DELETE, "Delete", "Delete this node")
+                    .build()
+            } else {
+                Menu::builder()
+                    .append_item(MENU_TREE_EDIT, "Edit", "Edit this node")
+                    .append_item(MENU_TREE_DELETE, "Delete", "Delete this node")
+                    .build()
+            };
+            tree_for_context.popup_menu(&mut menu, None);
+        });
         if let Some(root_item) = root_item {
             tree.select_item(&root_item);
         }
@@ -631,6 +718,7 @@ fn main() {
         let tree_for_menu = tree;
         let content_for_menu = content;
         let current_view_for_menu = Rc::clone(&current_view);
+        let context_node_for_menu = Rc::clone(&context_node);
         frame.on_menu(move |event| match event.get_id() {
             MENU_OPEN => match open_database_from_picker(
                 frame,
@@ -675,6 +763,153 @@ fn main() {
                 }
                 menu_exit_requested.set(true);
                 frame.close(false);
+            }
+            MENU_TREE_NEW_GROUP | MENU_TREE_NEW_ENTRY => {
+                let Some(parent_uuid) = context_node_for_menu.get() else {
+                    return;
+                };
+                let Some(parent) = kpdb_for_menu.borrow().as_ref().and_then(|db| db.get_node_by_id(parent_uuid)) else {
+                    status_bar.set_status_text("No database loaded", 0);
+                    return;
+                };
+                if !node_is_group(&parent) {
+                    status_bar.set_status_text("New nodes can only be created in a group", 0);
+                    return;
+                }
+                let result = if let Some(db) = kpdb_for_menu.borrow_mut().as_mut() {
+                    if event.get_id() == MENU_TREE_NEW_GROUP {
+                        db.create_new_group(parent_uuid)
+                    } else {
+                        db.create_new_entry(parent_uuid)
+                    }
+                } else {
+                    status_bar.set_status_text("No database loaded", 0);
+                    return;
+                };
+                match result {
+                    Ok(node) => {
+                        let uuid = node.borrow().get_uuid();
+                        let editor_result = if node_is_group(&node) {
+                            group_view::show_group_editor(&frame, &node, Rc::clone(&kpdb_for_menu))
+                        } else {
+                            entry_view::show_entry_editor(&frame, &node, Rc::clone(&kpdb_for_menu))
+                        };
+                        if editor_result == wxdragon::ID_OK {
+                            status_bar.set_status_text("Node created", 0);
+                        } else {
+                            status_bar.set_status_text("Node created without changes", 0);
+                        }
+                        refresh_tree(
+                            frame,
+                            &tree_for_menu,
+                            &kpdb_for_menu,
+                            &content_for_menu,
+                            &current_view_for_menu,
+                            &status_bar,
+                            Some(uuid),
+                        );
+                    }
+                    Err(error) => status_bar.set_status_text(&format!("Create failed: {error}"), 0),
+                }
+            }
+            MENU_TREE_EDIT => {
+                let Some(uuid) = context_node_for_menu.get() else {
+                    return;
+                };
+                let Some(root_item) = tree_for_menu.get_root_item() else {
+                    return;
+                };
+                let Some(item) = find_tree_item(&tree_for_menu, &root_item, uuid) else {
+                    return;
+                };
+                show_node_editor_from_tree(
+                    frame,
+                    &tree_for_menu,
+                    &item,
+                    &kpdb_for_menu,
+                    &content_for_menu,
+                    &current_view_for_menu,
+                    &status_bar,
+                );
+            }
+            MENU_TREE_DELETE => {
+                let Some(uuid) = context_node_for_menu.get() else {
+                    return;
+                };
+                let Some(node) = kpdb_for_menu.borrow().as_ref().and_then(|db| db.get_node_by_id(uuid)) else {
+                    return;
+                };
+                let Some(parent_uuid) = node.borrow().get_parent() else {
+                    status_bar.set_status_text("The database root cannot be deleted", 0);
+                    return;
+                };
+                let Some(root_item) = tree_for_menu.get_root_item() else {
+                    return;
+                };
+                let Some(tree_item) = find_tree_item(&tree_for_menu, &root_item, uuid) else {
+                    return;
+                };
+                let Some(parent_item) = find_tree_item(&tree_for_menu, &root_item, parent_uuid) else {
+                    return;
+                };
+                let title = node_title(&node);
+                let dialog = MessageDialog::builder(&frame, &format!("Delete {title}?"), "Confirm deletion")
+                    .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
+                    .build();
+                let confirmed = dialog.show_modal() == wxdragon::ID_YES;
+                dialog.destroy();
+                if !confirmed {
+                    return;
+                }
+                let delete_result = {
+                    let mut kpdb = kpdb_for_menu.borrow_mut();
+                    kpdb.as_mut().map(|db| db.delete_node(uuid))
+                };
+                match delete_result {
+                    Some(Ok(())) => {
+                        tree_for_menu.delete(&tree_item);
+                        tree_for_menu.select_item(&parent_item);
+                        let (deleted_node, recycle_bin) = kpdb_for_menu
+                            .borrow()
+                            .as_ref()
+                            .map(|db| {
+                                let deleted_node = db.get_node_by_id(uuid);
+                                let recycle_bin = db.db.as_ref().and_then(|database| database.get_recycle_bin());
+                                (deleted_node, recycle_bin)
+                            })
+                            .unwrap_or((None, None));
+                        if let (Some(deleted_node), Some(recycle_bin)) = (deleted_node, recycle_bin)
+                            && let Some(root_item) = tree_for_menu.get_root_item()
+                        {
+                            let recycle_bin_uuid = recycle_bin.borrow().get_uuid();
+                            let recycle_bin_item = find_tree_item(&tree_for_menu, &root_item, recycle_bin_uuid)
+                                .or_else(|| append_node(&tree_for_menu, &root_item, &recycle_bin, kpdb_for_menu.borrow().as_ref()));
+                            if let Some(recycle_bin_item) = recycle_bin_item {
+                                let deleted_item = find_tree_item(&tree_for_menu, &recycle_bin_item, uuid).or_else(|| {
+                                    append_node(&tree_for_menu, &recycle_bin_item, &deleted_node, kpdb_for_menu.borrow().as_ref())
+                                });
+                                tree_for_menu.expand(&recycle_bin_item);
+                                if let Some(deleted_item) = deleted_item {
+                                    tree_for_menu.ensure_visible(&deleted_item);
+                                }
+                            }
+                        }
+                        if let Some(parent) = kpdb_for_menu.borrow().as_ref().and_then(|db| db.get_node_by_id(parent_uuid)) {
+                            show_node_view(
+                                &content_for_menu,
+                                frame,
+                                &current_view_for_menu,
+                                &parent,
+                                &tree_for_menu,
+                                &kpdb_for_menu,
+                                &status_bar,
+                            );
+                        }
+                        status_bar.set_status_text("Node deleted", 0);
+                    }
+                    Some(Err(error)) => status_bar.set_status_text(&format!("Delete failed: {error}"), 0),
+                    None => status_bar.set_status_text("No database loaded", 0),
+                }
             }
             MENU_TOGGLE_TREE => {
                 let shown = !aui.is_pane_shown(TREE_PANE_NAME);

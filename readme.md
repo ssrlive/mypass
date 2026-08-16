@@ -35,4 +35,4 @@ or
 
 ## Screenshots
 
-![img](https://github.com/ssrlive/mypass/assets/30760636/4ded1594-e0d8-4ed1-ba18-233ab0e87f08)
+![img](https://github.com/user-attachments/assets/6cb6369c-07b7-4049-8186-16ae5f943452)

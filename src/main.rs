@@ -2,7 +2,7 @@
 
 use keepass_ng::{
     Uuid,
-    db::{Entry, NodePtr, group_get_children, node_is_group},
+    db::{Entry, Icon, NodePtr, group_get_children, node_is_group},
 };
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -20,6 +20,7 @@ const TREE_PANE_NAME: &str = "architecture-tree";
 const MENU_OPEN: i32 = 2001;
 const MENU_SAVE: i32 = 2002;
 const MENU_EXIT: i32 = 2003;
+const MENU_CLOSE: i32 = 2004;
 const MENU_SETTINGS: i32 = 2100;
 const MENU_TOGGLE_TREE: i32 = 2101;
 const MENU_TOGGLE_SHOW: i32 = 2102;
@@ -43,30 +44,64 @@ fn node_title(node: &NodePtr) -> String {
         .to_owned()
 }
 
-fn append_nodes(tree: &TreeCtrl, parent: &TreeItemId, node: &NodePtr) {
+fn tree_node_title(node: &NodePtr) -> String {
+    match node.borrow().get_icon() {
+        Icon::BuiltIn(icon_id) => format!("{}  {}", icon_id, node_title(node)),
+        Icon::Custom(_) => node_title(node),
+    }
+}
+
+fn node_icon_index(tree: &TreeCtrl, node: &NodePtr, kpdb: Option<&KpDb>) -> Option<i32> {
+    let image_list = tree.get_image_list()?;
+    let bitmap = match node.borrow().get_icon() {
+        Icon::BuiltIn(_) => return None,
+        Icon::Custom(uuid) => kpdb
+            .and_then(|db| db.db.as_ref())
+            .and_then(|db| db.meta.custom_icon(uuid))
+            .and_then(|icon| entry_view::bitmap_for_icon_fixed(&icon.data, 20)),
+    }?;
+    Some(image_list.add_bitmap(&bitmap))
+}
+
+fn set_node_icon(tree: &TreeCtrl, item: &TreeItemId, node: &NodePtr, kpdb: Option<&KpDb>) {
+    let image_index = node_icon_index(tree, node, kpdb).unwrap_or(-1);
+    for icon_type in [
+        TreeItemIcon::Normal,
+        TreeItemIcon::Selected,
+        TreeItemIcon::Expanded,
+        TreeItemIcon::SelectedExpanded,
+    ] {
+        tree.set_item_image(item, image_index, icon_type);
+    }
+}
+
+fn append_nodes(tree: &TreeCtrl, parent: &TreeItemId, node: &NodePtr, kpdb: Option<&KpDb>) {
     let Some(children) = group_get_children(node) else {
         return;
     };
 
     for child in children {
         let uuid = child.borrow().get_uuid();
-        let Some(item) = tree.append_item_with_data(parent, &node_title(&child), uuid, None, None) else {
+        let image_index = node_icon_index(tree, &child, kpdb);
+        let Some(item) = tree.append_item_with_data(parent, &tree_node_title(&child), uuid, image_index, image_index) else {
             continue;
         };
         if node_is_group(&child) {
-            append_nodes(tree, &item, &child);
+            append_nodes(tree, &item, &child, kpdb);
         }
     }
 }
 
 fn populate_tree(tree: &TreeCtrl, kpdb: Option<&KpDb>) -> Option<TreeItemId> {
+    tree.set_image_list(ImageList::new(20, 20, true, 0));
     let Some(root) = kpdb.and_then(KpDb::get_root) else {
         tree.add_root("No keepass database loaded", None, None);
         return None;
     };
 
-    let root_item = tree.add_root_with_data(&node_title(&root), root.borrow().get_uuid(), None, None)?;
-    append_nodes(tree, &root_item, &root);
+    let image_index = node_icon_index(tree, &root, kpdb);
+    let root_item = tree.add_root_with_data(&tree_node_title(&root), root.borrow().get_uuid(), image_index, image_index)?;
+    append_nodes(tree, &root_item, &root, kpdb);
     tree.expand(&root_item);
     Some(root_item)
 }
@@ -142,7 +177,15 @@ fn show_node_view(
     if let Some(root_item) = tree.get_root_item()
         && let Some(tree_item) = find_tree_item(tree, &root_item, node.borrow().get_uuid())
     {
-        tree.set_item_text(&tree_item, &node_title(node));
+        let was_expanded = tree.is_expanded(&tree_item);
+        tree.set_item_text(&tree_item, &tree_node_title(node));
+        set_node_icon(tree, &tree_item, node, kpdb.borrow().as_ref());
+        if was_expanded {
+            tree.expand(&tree_item);
+        } else {
+            tree.collapse(&tree_item);
+        }
+        tree.refresh(false, None);
     }
     if let Some(old_view) = current_view.borrow_mut().take() {
         old_view.destroy();
@@ -184,14 +227,214 @@ fn show_node_editor_from_tree(
     }
 }
 
-fn save_if_data_changed(kpdb: &Rc<RefCell<Option<KpDb>>>) -> Result<(), String> {
+fn save_if_data_changed(frame: Frame, kpdb: &Rc<RefCell<Option<KpDb>>>) -> Result<(), String> {
     let mut kpdb = kpdb.borrow_mut();
-    let db = kpdb.as_mut().ok_or("No database loaded")?;
+    let Some(db) = kpdb.as_mut() else {
+        return Ok(());
+    };
     if !db.is_data_changed() {
         return Ok(());
     }
-    db.save().map_err(|error| error.to_string())?;
+    let should_upgrade = |version: keepass_ng::DatabaseVersion| {
+        let msg = format!("This database is {version:?}, but saving requires KDBX4.1. Upgrade it to KDBX4.1?\nChoose No to abandon it.",);
+        let dlg = MessageDialog::builder(&frame, &msg, "Upgrade database format?")
+            .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
+            .build();
+        let res = dlg.show_modal() == wxdragon::ID_YES;
+        dlg.destroy();
+        res
+    };
+    let saved = db.save(Some(&should_upgrade)).map_err(|error| error.to_string())?;
+    if saved && let (Some(path), Some(database)) = (db.db_path.as_deref(), db.db.as_ref()) {
+        frame.set_title(&format!("mypass - {path} ({})", database.config.version));
+    }
     Ok(())
+}
+
+fn close_current_file(
+    frame: Frame,
+    kpdb: &Rc<RefCell<Option<KpDb>>>,
+    tree: &TreeCtrl,
+    content: &Panel,
+    current_view: &Rc<RefCell<Option<Panel>>>,
+    status_bar: &StatusBar,
+) -> Result<(), String> {
+    if kpdb.borrow().is_some() {
+        save_if_data_changed(frame, kpdb)?;
+    }
+    kpdb.borrow_mut().take();
+    tree.delete_all_items();
+    if let Some(view) = current_view.borrow_mut().take() {
+        view.destroy();
+    }
+    content.set_sizer(BoxSizer::builder(Orientation::Vertical).build(), true);
+    content.layout();
+    status_bar.set_status_text("Ready", 0);
+    status_bar.set_status_text("No database loaded", 1);
+    frame.set_title("mypass");
+    Ok(())
+}
+
+fn open_database_from_picker(
+    frame: Frame,
+    kpdb: &Rc<RefCell<Option<KpDb>>>,
+    tree: &TreeCtrl,
+    content: &Panel,
+    current_view: &Rc<RefCell<Option<Panel>>>,
+    status_bar: &StatusBar,
+) -> Result<bool, String> {
+    let database_dialog = FileDialog::builder(&frame)
+        .with_message("Choose a KeePass database")
+        .with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
+        .with_wildcard("KeePass database (*.kdbx)|*.kdbx|All files (*.*)|*.*")
+        .build();
+    if database_dialog.show_modal() != wxdragon::ID_OK {
+        return Ok(false);
+    }
+    let Some(database_path) = database_dialog.get_path() else {
+        return Ok(false);
+    };
+
+    let dialog = Dialog::builder(&frame, "Open KeePass database")
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder | DialogStyle::MaximizeBox)
+        .with_size(800, 220)
+        .build();
+    dialog.set_min_size(Size::new(620, 244));
+    let dialog_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    let fields = FlexGridSizer::builder(0, 3).with_vgap(8).with_hgap(8).build();
+    fields.add_growable_col(1, 1);
+
+    let database_path_control = TextCtrl::builder(&dialog)
+        .with_value(&database_path)
+        .with_style(TextCtrlStyle::ReadOnly)
+        .build();
+    let password_panel = Panel::builder(&dialog).build();
+    let password_control = TextCtrl::builder(&password_panel)
+        .with_style(TextCtrlStyle::Password)
+        .with_size(Size::new(-1, 24))
+        .build();
+    let password_visible_control = TextCtrl::builder(&password_panel).with_size(Size::new(-1, 24)).build();
+    password_visible_control.show(false);
+    let password_toggle = Button::builder(&password_panel)
+        .with_label("👁")
+        .with_size(Size::new(32, 24))
+        .build();
+    password_toggle.set_tooltip("Show or hide password");
+    let password_is_visible = Rc::new(Cell::new(false));
+    let password_for_toggle = password_control;
+    let password_visible_for_toggle = password_visible_control;
+    let password_panel_for_toggle = password_panel;
+    let password_is_visible_for_toggle = Rc::clone(&password_is_visible);
+    password_toggle.on_click(move |_| {
+        let is_visible = !password_is_visible_for_toggle.get();
+        if is_visible {
+            password_visible_for_toggle.set_value(&password_for_toggle.get_value());
+            password_for_toggle.show(false);
+            password_visible_for_toggle.show(true);
+        } else {
+            password_for_toggle.set_value(&password_visible_for_toggle.get_value());
+            password_visible_for_toggle.show(false);
+            password_for_toggle.show(true);
+        }
+        password_panel_for_toggle.layout();
+        password_is_visible_for_toggle.set(is_visible);
+    });
+    let password_controls = BoxSizer::builder(Orientation::Horizontal).build();
+    password_controls.add(&password_control, 1, SizerFlag::All | SizerFlag::Expand, 0);
+    password_controls.add(&password_visible_control, 1, SizerFlag::All | SizerFlag::Expand, 0);
+    password_controls.add(&password_toggle, 0, SizerFlag::All, 4);
+    password_panel.set_sizer(password_controls, true);
+    let key_file_control = TextCtrl::builder(&dialog)
+        .with_value(" ")
+        .with_style(TextCtrlStyle::ReadOnly)
+        .with_size(Size::new(300, 28))
+        .build();
+    key_file_control.set_min_size(Size::new(300, 28));
+    let key_file_button = Button::builder(&dialog).with_label("Pick key file...").build();
+    fields.add(
+        &StaticText::builder(&dialog).with_label("Database file").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    fields.add(&database_path_control, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    fields.add(&StaticText::builder(&dialog).with_label("").build(), 0, SizerFlag::All, 4);
+    fields.add(&StaticText::builder(&dialog).with_label("Password").build(), 0, SizerFlag::All, 4);
+    fields.add(&password_panel, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    fields.add(&StaticText::builder(&dialog).with_label("").build(), 0, SizerFlag::All, 4);
+    fields.add(&StaticText::builder(&dialog).with_label("Key file").build(), 0, SizerFlag::All, 4);
+    fields.add(&key_file_control, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    fields.add(&key_file_button, 0, SizerFlag::All, 4);
+    dialog_sizer.add_sizer(&fields, 1, SizerFlag::All | SizerFlag::Expand, 12);
+
+    let key_file_for_picker = key_file_control;
+    key_file_button.on_click(move |_| {
+        let key_file_dialog = FileDialog::builder(&key_file_for_picker)
+            .with_message("Choose a KeePass key file")
+            .with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
+            .with_wildcard("Key files (*.*)|*.*")
+            .build();
+        if key_file_dialog.show_modal() == wxdragon::ID_OK
+            && let Some(path) = key_file_dialog.get_path()
+        {
+            key_file_for_picker.set_value(&path);
+        }
+    });
+
+    let button_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+    let spacer = StaticText::builder(&dialog).with_label("").build();
+    let cancel = Button::builder(&dialog).with_id(wxdragon::ID_CANCEL).with_label("Cancel").build();
+    let ok = Button::builder(&dialog).with_label("OK").build();
+    button_sizer.add(&spacer, 1, SizerFlag::Expand, 0);
+    button_sizer.add(&cancel, 0, SizerFlag::All, 4);
+    button_sizer.add(&ok, 0, SizerFlag::All, 4);
+    dialog_sizer.add_sizer(&button_sizer, 0, SizerFlag::All | SizerFlag::Expand, 8);
+    dialog.set_sizer(dialog_sizer, true);
+    dialog.set_escape_id(wxdragon::ID_CANCEL);
+
+    let dialog_for_cancel = dialog;
+    cancel.on_click(move |_| dialog_for_cancel.end_modal(wxdragon::ID_CANCEL));
+    let dialog_for_ok = dialog;
+    ok.on_click(move |_| dialog_for_ok.end_modal(wxdragon::ID_OK));
+
+    if dialog.show_modal() != wxdragon::ID_OK {
+        return Ok(false);
+    }
+
+    let key_file = key_file_control.get_value();
+    let key_file = (!key_file.trim().is_empty()).then_some(key_file);
+    let password = if password_is_visible.get() {
+        password_visible_control.get_value()
+    } else {
+        password_control.get_value()
+    };
+    let password = (!password.is_empty()).then_some(password);
+    let new_db = KpDb::open(&database_path, password.as_deref(), key_file.as_deref()).map_err(|error| error.to_string())?;
+    save_if_data_changed(frame, kpdb)?;
+    kpdb.borrow_mut().replace(new_db);
+    tree.delete_all_items();
+    if let Some(view) = current_view.borrow_mut().take() {
+        view.destroy();
+    }
+    content.set_sizer(BoxSizer::builder(Orientation::Vertical).build(), true);
+    content.layout();
+    let root_item = populate_tree(tree, kpdb.borrow().as_ref());
+    if let Some(root) = kpdb.borrow().as_ref().and_then(KpDb::get_root) {
+        show_node_view(content, frame, current_view, &root, tree, kpdb, status_bar);
+        if let Some(root_item) = root_item {
+            tree.select_item(&root_item);
+        }
+    }
+    let version = kpdb
+        .borrow()
+        .as_ref()
+        .and_then(|db| db.db.as_ref())
+        .map(|db| db.config.version.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    frame.set_title(&format!("mypass - {database_path} ({version})"));
+    status_bar.set_status_text(&database_path, 1);
+    status_bar.set_status_text("Database opened", 0);
+    Ok(true)
 }
 
 fn main() {
@@ -213,13 +456,18 @@ fn main() {
             KpDb::open(&path, password.as_deref(), key_file.as_deref()).ok()
         });
         let kpdb = Rc::new(RefCell::new(kpdb));
-        if let Some(path) = kpdb.borrow().as_ref().and_then(|db| db.db_path.clone()) {
-            status_bar.set_status_text(&path, 1);
+        if let Some(db) = kpdb.borrow().as_ref()
+            && let Some(path) = db.db_path.as_deref()
+            && let Some(database) = db.db.as_ref()
+        {
+            status_bar.set_status_text(path, 1);
+            frame.set_title(&format!("mypass - {path} ({})", database.config.version));
         }
 
         let file_menu = Menu::builder()
             .append_item(MENU_OPEN, "Open...", "Open a KeePass database")
             .append_item(MENU_SAVE, "Save", "Save the current database")
+            .append_item(MENU_CLOSE, "Close", "Close the current database")
             .append_separator()
             .append_item(MENU_EXIT, "Exit", "Exit mypass")
             .build();
@@ -380,14 +628,45 @@ fn main() {
 
         let menu_exit_requested = Rc::clone(&exit_requested);
         let kpdb_for_menu = Rc::clone(&kpdb);
+        let tree_for_menu = tree;
+        let content_for_menu = content;
+        let current_view_for_menu = Rc::clone(&current_view);
         frame.on_menu(move |event| match event.get_id() {
-            MENU_OPEN => status_bar.set_status_text("Open is not implemented yet", 0),
-            MENU_SAVE => match save_if_data_changed(&kpdb_for_menu) {
+            MENU_OPEN => match open_database_from_picker(
+                frame,
+                &kpdb_for_menu,
+                &tree_for_menu,
+                &content_for_menu,
+                &current_view_for_menu,
+                &status_bar,
+            ) {
+                Ok(false) => status_bar.set_status_text("Open cancelled", 0),
+                Ok(true) => {}
+                Err(error) => {
+                    MessageDialog::builder(&frame, &error, "Open failed")
+                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+                        .build()
+                        .show_modal();
+                    status_bar.set_status_text("Could not open database", 0);
+                }
+            },
+            MENU_SAVE => match save_if_data_changed(frame, &kpdb_for_menu) {
                 Ok(()) => status_bar.set_status_text("Database saved", 0),
                 Err(error) => status_bar.set_status_text(&format!("Save failed: {error}"), 0),
             },
+            MENU_CLOSE => match close_current_file(
+                frame,
+                &kpdb_for_menu,
+                &tree_for_menu,
+                &content_for_menu,
+                &current_view_for_menu,
+                &status_bar,
+            ) {
+                Ok(()) => status_bar.set_status_text("Current database closed", 0),
+                Err(error) => status_bar.set_status_text(&format!("Close failed: {error}"), 0),
+            },
             MENU_EXIT => {
-                if let Err(error) = save_if_data_changed(&kpdb_for_menu) {
+                if let Err(error) = save_if_data_changed(frame, &kpdb_for_menu) {
                     MessageDialog::builder(&frame, &format!("Could not save database: {error}"), "Save failed")
                         .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
                         .build()
@@ -499,7 +778,7 @@ fn main() {
                     return;
                 }
             }
-            if let Err(error) = save_if_data_changed(&kpdb_for_close) {
+            if let Err(error) = save_if_data_changed(frame, &kpdb_for_close) {
                 MessageDialog::builder(&frame, &format!("Could not save database: {error}"), "Save failed")
                     .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
                     .build()

@@ -1,7 +1,7 @@
 use crate::error::Result;
 use chrono::Local;
 use keepass_ng::{
-    DatabaseConfig, DatabaseKey, Uuid,
+    DatabaseConfig, DatabaseKey, DatabaseVersion, Uuid,
     db::{self, Database, Group, NodePtr, group_get_children, node_is_group, search_node_by_uuid},
 };
 use std::{
@@ -50,19 +50,28 @@ impl KpDb {
         Ok(kpdb)
     }
 
-    pub fn save(&mut self) -> Result<()> {
-        let db = self.db.as_ref().ok_or("No database")?;
+    pub fn save(&mut self, should_upgrade: Option<&dyn Fn(DatabaseVersion) -> bool>) -> Result<bool> {
+        let db_key = self.build_db_key()?;
+        let version = self.db.as_ref().ok_or("No database")?.config.version;
+        if version != DatabaseVersion::KDB4(1)
+            && let Some(callback) = should_upgrade
+            && !callback(version)
+        {
+            return Ok(false);
+        }
+        let db = self.db.as_mut().ok_or("No database")?;
         let db_path = self.db_path.as_deref().ok_or("Database path is not set")?;
         let db_path = std::path::Path::new(db_path);
         let mut temporary_path = PathBuf::from(db_path);
         temporary_path.set_extension("kdbx.tmp");
         let mut file = File::create(&temporary_path)?;
-        db.save(&mut file, self.build_db_key()?).map_err(|error| error.to_string())?;
+        db.config.version = DatabaseVersion::KDB4(1);
+        db.save(&mut file, db_key).map_err(|error| error.to_string())?;
         file.sync_all()?;
         drop(file);
         fs::rename(temporary_path, db_path)?;
         self.data_changed = false;
-        Ok(())
+        Ok(true)
     }
 
     pub fn is_data_changed(&self) -> bool {

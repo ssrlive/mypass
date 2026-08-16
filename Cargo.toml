@@ -9,13 +9,13 @@ chrono = "0.4"
 dotenvy = "0.15.7"
 env_logger = "0.11.11"
 image = "0.25.10"
-# keepass-ng = { version = "0.11.9", path = "../keepass-ng", features = [
+# keepass-ng = { version = "0.11.10", path = "../keepass-ng", features = [
 #     "utilities",
 #     "save_kdbx4",
 #     "challenge_response",
 #     "merge",
 # ] }
-keepass-ng = { version = "0.11.9", features = [
+keepass-ng = { version = "0.11.10", features = [
     "utilities",
     "save_kdbx4",
     "challenge_response",

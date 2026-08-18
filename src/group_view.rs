@@ -1,4 +1,7 @@
-use crate::{entry_view::bitmap_for_icon, entry_view::bitmap_for_icon_fixed, find_tree_item, keepass::KpDb, node_title, show_node_view};
+use crate::{
+    entry_view::{bitmap_for_builtin_icon, bitmap_for_icon, bitmap_for_icon_fixed},
+    find_tree_item, keepass::KpDb, node_title, show_node_view,
+};
 use keepass_ng::{
     Uuid,
     db::{Entry, Group, Icon, IconId, Node, NodePtr, group_get_children, node_is_group, with_node, with_node_mut},
@@ -46,12 +49,14 @@ pub fn build_group_view(
     let header_sizer = BoxSizer::builder(Orientation::Horizontal).build();
     match group.borrow().get_icon() {
         Icon::BuiltIn(icon_id) => {
-            let group_icon = StaticText::builder(parent).with_label(&icon_id.to_string()).build();
-            if let Some(font) = wxdragon::Font::builder().with_point_size(20).build() {
-                group_icon.set_font(&font);
+            if let Some(bitmap) = bitmap_for_builtin_icon(&icon_id.to_string(), 28) {
+                let group_icon = StaticBitmap::builder(parent)
+                    .with_bitmap(Some(bitmap))
+                    .with_size(Size::new(32, 32))
+                    .build();
+                group_icon.set_tooltip(&format!("Built-in icon {icon_id}"));
+                header_sizer.add(&group_icon, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
             }
-            group_icon.set_tooltip(&format!("Built-in icon {icon_id}"));
-            header_sizer.add(&group_icon, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
         }
         Icon::Custom(uuid) => {
             let custom_icon = kpdb
@@ -87,7 +92,10 @@ pub fn build_group_view(
     for child in &children {
         let child_icon = child.borrow().get_icon();
         let (icon_label, image_index) = match child_icon {
-            Icon::BuiltIn(icon_id) => (icon_id.to_string(), None),
+            Icon::BuiltIn(icon_id) => {
+                let image_index = bitmap_for_builtin_icon(&icon_id.to_string(), 20).map(|bitmap| image_list.add_bitmap(&bitmap));
+                (String::new(), image_index)
+            }
             Icon::Custom(uuid) => {
                 let image_index = kpdb
                     .borrow()
@@ -259,12 +267,9 @@ pub(crate) fn show_group_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<
         let row = BoxSizer::builder(Orientation::Horizontal).build();
         for icon_number in row_start..(row_start + ICONS_PER_ROW).min(IconId::count()) {
             let icon_number: IconId = icon_number.try_into().unwrap_or(IconId::KEY);
-            let button = Button::builder(&icon_page)
-                .with_label(&icon_number.to_string())
-                .with_size(Size::new(36, 36))
-                .build();
-            if let Some(font) = wxdragon::Font::builder().with_point_size(18).build() {
-                button.set_font(&font);
+            let button = Button::builder(&icon_page).with_size(Size::new(36, 36)).build();
+            if let Some(bitmap) = bitmap_for_builtin_icon(&icon_number.to_string(), 28) {
+                button.set_bitmap_label(&bitmap);
             }
             let icon = Icon::BuiltIn(icon_number);
             let buttons_for_click = Rc::clone(&icon_buttons);

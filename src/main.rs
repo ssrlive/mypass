@@ -48,17 +48,10 @@ fn node_title(node: &NodePtr) -> String {
         .to_owned()
 }
 
-fn tree_node_title(node: &NodePtr) -> String {
-    match node.borrow().get_icon() {
-        Icon::BuiltIn(icon_id) => format!("{}  {}", icon_id, node_title(node)),
-        Icon::Custom(_) => node_title(node),
-    }
-}
-
 fn node_icon_index(tree: &TreeCtrl, node: &NodePtr, kpdb: Option<&KpDb>) -> Option<i32> {
     let image_list = tree.get_image_list()?;
     let bitmap = match node.borrow().get_icon() {
-        Icon::BuiltIn(_) => return None,
+        Icon::BuiltIn(icon_id) => entry_view::bitmap_for_builtin_icon(&icon_id.to_string(), 20),
         Icon::Custom(uuid) => kpdb
             .and_then(|db| db.db.as_ref())
             .and_then(|db| db.meta.custom_icon(uuid))
@@ -87,7 +80,7 @@ fn append_nodes(tree: &TreeCtrl, parent: &TreeItemId, node: &NodePtr, kpdb: Opti
     for child in children {
         let uuid = child.borrow().get_uuid();
         let image_index = node_icon_index(tree, &child, kpdb);
-        let Some(item) = tree.append_item_with_data(parent, &tree_node_title(&child), uuid, image_index, image_index) else {
+        let Some(item) = tree.append_item_with_data(parent, &node_title(&child), uuid, image_index, image_index) else {
             continue;
         };
         if node_is_group(&child) {
@@ -99,7 +92,7 @@ fn append_nodes(tree: &TreeCtrl, parent: &TreeItemId, node: &NodePtr, kpdb: Opti
 fn append_node(tree: &TreeCtrl, parent: &TreeItemId, node: &NodePtr, kpdb: Option<&KpDb>) -> Option<TreeItemId> {
     let uuid = node.borrow().get_uuid();
     let image_index = node_icon_index(tree, node, kpdb);
-    let item = tree.append_item_with_data(parent, &tree_node_title(node), uuid, image_index, image_index)?;
+    let item = tree.append_item_with_data(parent, &node_title(node), uuid, image_index, image_index)?;
     if node_is_group(node) {
         append_nodes(tree, &item, node, kpdb);
     }
@@ -114,7 +107,7 @@ fn populate_tree(tree: &TreeCtrl, kpdb: Option<&KpDb>) -> Option<TreeItemId> {
     };
 
     let image_index = node_icon_index(tree, &root, kpdb);
-    let root_item = tree.add_root_with_data(&tree_node_title(&root), root.borrow().get_uuid(), image_index, image_index)?;
+    let root_item = tree.add_root_with_data(&node_title(&root), root.borrow().get_uuid(), image_index, image_index)?;
     append_nodes(tree, &root_item, &root, kpdb);
     tree.expand(&root_item);
     Some(root_item)
@@ -192,7 +185,7 @@ fn show_node_view(
         && let Some(tree_item) = find_tree_item(tree, &root_item, node.borrow().get_uuid())
     {
         let was_expanded = tree.is_expanded(&tree_item);
-        tree.set_item_text(&tree_item, &tree_node_title(node));
+        tree.set_item_text(&tree_item, &node_title(node));
         set_node_icon(tree, &tree_item, node, kpdb.borrow().as_ref());
         if was_expanded {
             tree.expand(&tree_item);
@@ -479,445 +472,487 @@ fn open_database_from_picker(
 fn main() {
     dotenvy::dotenv().ok();
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
-    let _ = wxdragon::main(|_| {
-        let frame = Frame::builder().with_title("mypass").with_size(Size::new(960, 640)).build();
-        let status_bar = StatusBar::builder(&frame)
-            .with_fields_count(2)
-            .with_status_widths(vec![-1, 280])
-            .add_initial_text(0, "Ready")
-            .add_initial_text(1, "No database loaded")
-            .build();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    if let Err(e) = wxdragon::main(on_wxdragon_init) {
+        log::error!("Failed to run wxDragon application: {e}");
+    }
+}
 
-        let kpdb = std::env::var("DB_PATH").ok().and_then(|path| {
-            let password = std::env::var("PASSWORD").ok();
-            let key_file = std::env::var("KEY_FILE").ok();
-            KpDb::open(&path, password.as_deref(), key_file.as_deref()).ok()
-        });
-        let kpdb = Rc::new(RefCell::new(kpdb));
-        if let Some(db) = kpdb.borrow().as_ref()
-            && let Some(path) = db.db_path.as_deref()
-            && let Some(database) = db.db.as_ref()
+fn on_wxdragon_init(_app: App) {
+    let frame = Frame::builder().with_title("mypass").with_size(Size::new(960, 640)).build();
+    let status_bar = StatusBar::builder(&frame)
+        .with_fields_count(2)
+        .with_status_widths(vec![-1, 280])
+        .add_initial_text(0, "Ready")
+        .add_initial_text(1, "No database loaded")
+        .build();
+
+    let kpdb = std::env::var("DB_PATH").ok().and_then(|path| {
+        let password = std::env::var("PASSWORD").ok();
+        let key_file = std::env::var("KEY_FILE").ok();
+        KpDb::open(&path, password.as_deref(), key_file.as_deref()).ok()
+    });
+    let kpdb = Rc::new(RefCell::new(kpdb));
+    if let Some(db) = kpdb.borrow().as_ref()
+        && let Some(path) = db.db_path.as_deref()
+        && let Some(database) = db.db.as_ref()
+    {
+        status_bar.set_status_text(path, 1);
+        frame.set_title(&format!("mypass - {path} ({})", database.config.version));
+    }
+
+    let file_menu = Menu::builder()
+        .append_item(MENU_OPEN, "Open...", "Open a KeePass database")
+        .append_item(MENU_SAVE, "Save", "Save the current database")
+        .append_item(MENU_CLOSE, "Close", "Close the current database")
+        .append_separator()
+        .append_item(MENU_EXIT, "Exit", "Exit mypass")
+        .build();
+    let view_menu = Menu::builder()
+        .append_check_item(MENU_TOGGLE_TREE, "Architecture tree", "Show or hide the architecture tree")
+        .build();
+    let help_menu = Menu::builder()
+        .append_item(MENU_ABOUT, "About mypass", "About this application")
+        .build();
+    let menu_bar = MenuBar::builder()
+        .append(file_menu, "File")
+        .append(view_menu, "View")
+        .append(help_menu, "Help")
+        .build();
+    frame.set_menu_bar(menu_bar);
+
+    let content = Panel::builder(&frame).build();
+    let initial_view = Panel::builder(&content).build();
+    let initial_details = StaticText::builder(&initial_view)
+        .with_label("Select an entry or group from the architecture tree.")
+        .build();
+    let initial_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    initial_sizer.add(&initial_details, 1, SizerFlag::All | SizerFlag::Expand, 12);
+    initial_view.set_sizer(initial_sizer, true);
+    let content_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    content_sizer.add(&initial_view, 1, SizerFlag::All | SizerFlag::Expand, 0);
+    content.set_sizer(content_sizer, true);
+    let current_view = Rc::new(RefCell::new(Some(initial_view)));
+
+    let tree_pane = Panel::builder(&frame).build();
+    let tree = TreeCtrl::builder(&tree_pane)
+        .with_style(TreeCtrlStyle::HasButtons | TreeCtrlStyle::LinesAtRoot | TreeCtrlStyle::Single)
+        .build();
+    let tree_sizer = BoxSizer::builder(Orientation::Vertical).build();
+    tree_sizer.add(&tree, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    tree_pane.set_sizer(tree_sizer, true);
+    let root_item = populate_tree(&tree, kpdb.borrow().as_ref());
+    let exit_requested = Rc::new(Cell::new(false));
+
+    let aui = AuiManager::builder(&frame).build();
+    aui.add_pane_with_info(
+        &tree_pane,
+        AuiPaneInfo::new()
+            .with_name(TREE_PANE_NAME)
+            .with_caption("Architecture tree")
+            .left()
+            .best_size(300, 600)
+            .close_button(true)
+            .floatable(true)
+            .dockable(true),
+    );
+    aui.add_pane_with_info(
+        &content,
+        AuiPaneInfo::new().with_name("details").with_caption("Details").center_pane(),
+    );
+    aui.update();
+
+    let kpdb_for_selection = Rc::clone(&kpdb);
+    let current_view_for_selection = Rc::clone(&current_view);
+    let tree_for_selection = tree;
+    let content_for_selection = content;
+    let status_bar_for_selection = status_bar;
+    tree.on_selection_changed(move |event| {
+        let Some(item) = event.get_item().or_else(|| tree.get_selection()) else {
+            return;
+        };
+        let Some(data) = tree.get_custom_data(&item) else {
+            return;
+        };
+        let Some(uuid) = data.downcast_ref::<Uuid>() else {
+            return;
+        };
+        let Some(node) = kpdb_for_selection.borrow().as_ref().and_then(|db| db.get_node_by_id(*uuid)) else {
+            return;
+        };
+        show_node_view(
+            &content_for_selection,
+            frame,
+            &current_view_for_selection,
+            &node,
+            &tree_for_selection,
+            &kpdb_for_selection,
+            &status_bar_for_selection,
+        );
+        tree_for_selection.set_focus();
+        status_bar.set_status_text("Node selected", 0);
+    });
+
+    let context_node = Rc::new(Cell::new(None::<Uuid>));
+    let enter_edit_requested = Rc::new(Cell::new(false));
+    let enter_edit_requested_for_key = Rc::clone(&enter_edit_requested);
+    let context_node_for_key = Rc::clone(&context_node);
+    let tree_for_key = tree;
+    let kpdb_for_key = Rc::clone(&kpdb);
+    let content_for_key = content;
+    let current_view_for_key = Rc::clone(&current_view);
+    let status_bar_for_key = status_bar;
+    tree.on_key_down(move |event| {
+        if let wxdragon::WindowEventData::Keyboard(key_event) = event
+            && (key_event.get_key_code() == Some(13) || key_event.get_key_code() == Some(127))
+            && let Some(item) = tree_for_key.get_selection()
         {
-            status_bar.set_status_text(path, 1);
-            frame.set_title(&format!("mypass - {path} ({})", database.config.version));
-        }
-
-        let file_menu = Menu::builder()
-            .append_item(MENU_OPEN, "Open...", "Open a KeePass database")
-            .append_item(MENU_SAVE, "Save", "Save the current database")
-            .append_item(MENU_CLOSE, "Close", "Close the current database")
-            .append_separator()
-            .append_item(MENU_EXIT, "Exit", "Exit mypass")
-            .build();
-        let view_menu = Menu::builder()
-            .append_check_item(MENU_TOGGLE_TREE, "Architecture tree", "Show or hide the architecture tree")
-            .build();
-        let help_menu = Menu::builder()
-            .append_item(MENU_ABOUT, "About mypass", "About this application")
-            .build();
-        let menu_bar = MenuBar::builder()
-            .append(file_menu, "File")
-            .append(view_menu, "View")
-            .append(help_menu, "Help")
-            .build();
-        frame.set_menu_bar(menu_bar);
-
-        let content = Panel::builder(&frame).build();
-        let initial_view = Panel::builder(&content).build();
-        let initial_details = StaticText::builder(&initial_view)
-            .with_label("Select an entry or group from the architecture tree.")
-            .build();
-        let initial_sizer = BoxSizer::builder(Orientation::Vertical).build();
-        initial_sizer.add(&initial_details, 1, SizerFlag::All | SizerFlag::Expand, 12);
-        initial_view.set_sizer(initial_sizer, true);
-        let content_sizer = BoxSizer::builder(Orientation::Vertical).build();
-        content_sizer.add(&initial_view, 1, SizerFlag::All | SizerFlag::Expand, 0);
-        content.set_sizer(content_sizer, true);
-        let current_view = Rc::new(RefCell::new(Some(initial_view)));
-
-        let tree_pane = Panel::builder(&frame).build();
-        let tree = TreeCtrl::builder(&tree_pane)
-            .with_style(TreeCtrlStyle::HasButtons | TreeCtrlStyle::LinesAtRoot | TreeCtrlStyle::Single)
-            .build();
-        let tree_sizer = BoxSizer::builder(Orientation::Vertical).build();
-        tree_sizer.add(&tree, 1, SizerFlag::All | SizerFlag::Expand, 4);
-        tree_pane.set_sizer(tree_sizer, true);
-        let root_item = populate_tree(&tree, kpdb.borrow().as_ref());
-        let exit_requested = Rc::new(Cell::new(false));
-
-        let aui = AuiManager::builder(&frame).build();
-        aui.add_pane_with_info(
-            &tree_pane,
-            AuiPaneInfo::new()
-                .with_name(TREE_PANE_NAME)
-                .with_caption("Architecture tree")
-                .left()
-                .best_size(300, 600)
-                .close_button(true)
-                .floatable(true)
-                .dockable(true),
-        );
-        aui.add_pane_with_info(
-            &content,
-            AuiPaneInfo::new().with_name("details").with_caption("Details").center_pane(),
-        );
-        aui.update();
-
-        let kpdb_for_selection = Rc::clone(&kpdb);
-        let current_view_for_selection = Rc::clone(&current_view);
-        let tree_for_selection = tree;
-        let content_for_selection = content;
-        let status_bar_for_selection = status_bar;
-        tree.on_selection_changed(move |event| {
-            let Some(item) = event.get_item().or_else(|| tree.get_selection()) else {
-                return;
-            };
-            let Some(data) = tree.get_custom_data(&item) else {
-                return;
-            };
-            let Some(uuid) = data.downcast_ref::<Uuid>() else {
-                return;
-            };
-            let Some(node) = kpdb_for_selection.borrow().as_ref().and_then(|db| db.get_node_by_id(*uuid)) else {
-                return;
-            };
-            show_node_view(
-                &content_for_selection,
-                frame,
-                &current_view_for_selection,
-                &node,
-                &tree_for_selection,
-                &kpdb_for_selection,
-                &status_bar_for_selection,
-            );
-            tree_for_selection.set_focus();
-            status_bar.set_status_text("Node selected", 0);
-        });
-
-        let context_node = Rc::new(Cell::new(None::<Uuid>));
-        let enter_edit_requested = Rc::new(Cell::new(false));
-        let enter_edit_requested_for_key = Rc::clone(&enter_edit_requested);
-        let context_node_for_key = Rc::clone(&context_node);
-        let tree_for_key = tree;
-        let kpdb_for_key = Rc::clone(&kpdb);
-        let content_for_key = content;
-        let current_view_for_key = Rc::clone(&current_view);
-        let status_bar_for_key = status_bar;
-        tree.on_key_down(move |event| {
-            if let wxdragon::WindowEventData::Keyboard(key_event) = event
-                && (key_event.get_key_code() == Some(13) || key_event.get_key_code() == Some(127))
-                && let Some(item) = tree_for_key.get_selection()
+            if key_event.get_key_code() == Some(13) {
+                enter_edit_requested_for_key.set(true);
+                show_node_editor_from_tree(
+                    frame,
+                    &tree_for_key,
+                    &item,
+                    &kpdb_for_key,
+                    &content_for_key,
+                    &current_view_for_key,
+                    &status_bar_for_key,
+                );
+            } else if let Some(data) = tree_for_key.get_custom_data(&item)
+                && let Some(uuid) = data.downcast_ref::<Uuid>()
             {
-                if key_event.get_key_code() == Some(13) {
-                    enter_edit_requested_for_key.set(true);
-                    show_node_editor_from_tree(
-                        frame,
-                        &tree_for_key,
-                        &item,
-                        &kpdb_for_key,
-                        &content_for_key,
-                        &current_view_for_key,
-                        &status_bar_for_key,
-                    );
-                } else if let Some(data) = tree_for_key.get_custom_data(&item)
-                    && let Some(uuid) = data.downcast_ref::<Uuid>()
-                {
-                    context_node_for_key.set(Some(*uuid));
-                    frame.process_menu_command(MENU_TREE_DELETE);
-                }
+                context_node_for_key.set(Some(*uuid));
+                frame.process_menu_command(MENU_TREE_DELETE);
             }
-        });
-
-        let enter_edit_requested_for_activation = Rc::clone(&enter_edit_requested);
-        let tree_for_activation = tree;
-        let kpdb_for_activation = Rc::clone(&kpdb);
-        let content_for_activation = content;
-        let current_view_for_activation = Rc::clone(&current_view);
-        let status_bar_for_activation = status_bar;
-        tree.on_item_activated(move |event| {
-            if enter_edit_requested_for_activation.replace(false) {
-                return;
-            }
-            let Some(item) = event.get_item() else {
-                return;
-            };
-            let Some(data) = tree_for_activation.get_custom_data(&item) else {
-                return;
-            };
-            let Some(uuid) = data.downcast_ref::<Uuid>() else {
-                return;
-            };
-            let Some(node) = kpdb_for_activation.borrow().as_ref().and_then(|db| db.get_node_by_id(*uuid)) else {
-                return;
-            };
-            if !node_is_group(&node) {
-                show_node_editor_from_tree(
-                    frame,
-                    &tree_for_activation,
-                    &item,
-                    &kpdb_for_activation,
-                    &content_for_activation,
-                    &current_view_for_activation,
-                    &status_bar_for_activation,
-                );
-            }
-        });
-
-        let context_node_for_tree = Rc::clone(&context_node);
-        let tree_for_context = tree;
-        let kpdb_for_context = Rc::clone(&kpdb);
-        tree.on_item_right_click(move |event| {
-            let Some(item) = event.get_item() else {
-                return;
-            };
-            let Some(data) = tree_for_context.get_custom_data(&item) else {
-                return;
-            };
-            let Some(uuid) = data.downcast_ref::<Uuid>() else {
-                return;
-            };
-            context_node_for_tree.set(Some(*uuid));
-            tree_for_context.select_item(&item);
-
-            let is_group = kpdb_for_context
-                .borrow()
-                .as_ref()
-                .and_then(|db| db.get_node_by_id(*uuid))
-                .map(|node| node_is_group(&node))
-                .unwrap_or(false);
-            let mut menu = if is_group {
-                Menu::builder()
-                    .append_item(MENU_TREE_NEW_GROUP, "New Group", "Create a new group")
-                    .append_item(MENU_TREE_NEW_ENTRY, "New Entry", "Create a new entry")
-                    .append_separator()
-                    .append_item(MENU_TREE_EDIT, "Edit", "Edit this node")
-                    .append_item(MENU_TREE_DELETE, "Delete", "Delete this node")
-                    .build()
-            } else {
-                Menu::builder()
-                    .append_item(MENU_TREE_EDIT, "Edit", "Edit this node")
-                    .append_item(MENU_TREE_DELETE, "Delete", "Delete this node")
-                    .build()
-            };
-            tree_for_context.popup_menu(&mut menu, None);
-        });
-        if let Some(root_item) = root_item {
-            tree.select_item(&root_item);
         }
-        if let Some(root) = kpdb.borrow().as_ref().and_then(KpDb::get_root) {
-            show_node_view(&content, frame, &current_view, &root, &tree, &kpdb, &status_bar);
-            tree.set_focus();
+    });
+
+    let enter_edit_requested_for_activation = Rc::clone(&enter_edit_requested);
+    let tree_for_activation = tree;
+    let kpdb_for_activation = Rc::clone(&kpdb);
+    let content_for_activation = content;
+    let current_view_for_activation = Rc::clone(&current_view);
+    let status_bar_for_activation = status_bar;
+    tree.on_item_activated(move |event| {
+        if enter_edit_requested_for_activation.replace(false) {
+            return;
         }
-
-        let menu_bar_for_toggle = frame.get_menu_bar().expect("menu bar was just installed");
-        menu_bar_for_toggle.check_item(MENU_TOGGLE_TREE, aui.is_pane_shown(TREE_PANE_NAME));
-
-        let menu_exit_requested = Rc::clone(&exit_requested);
-        let kpdb_for_menu = Rc::clone(&kpdb);
-        let tree_for_menu = tree;
-        let content_for_menu = content;
-        let current_view_for_menu = Rc::clone(&current_view);
-        let context_node_for_menu = Rc::clone(&context_node);
-        frame.on_menu(move |event| match event.get_id() {
-            MENU_OPEN => match open_database_from_picker(
+        let Some(item) = event.get_item() else {
+            return;
+        };
+        let Some(data) = tree_for_activation.get_custom_data(&item) else {
+            return;
+        };
+        let Some(uuid) = data.downcast_ref::<Uuid>() else {
+            return;
+        };
+        let Some(node) = kpdb_for_activation.borrow().as_ref().and_then(|db| db.get_node_by_id(*uuid)) else {
+            return;
+        };
+        if !node_is_group(&node) {
+            show_node_editor_from_tree(
                 frame,
-                &kpdb_for_menu,
-                &tree_for_menu,
-                &content_for_menu,
-                &current_view_for_menu,
-                &status_bar,
-            ) {
-                Ok(false) => status_bar.set_status_text("Open cancelled", 0),
-                Ok(true) => {}
-                Err(error) => {
-                    MessageDialog::builder(&frame, &error, "Open failed")
-                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-                        .build()
-                        .show_modal();
-                    status_bar.set_status_text("Could not open database", 0);
-                }
-            },
-            MENU_SAVE => match save_if_data_changed(frame, &kpdb_for_menu) {
-                Ok(()) => status_bar.set_status_text("Database saved", 0),
-                Err(error) => status_bar.set_status_text(&format!("Save failed: {error}"), 0),
-            },
-            MENU_CLOSE => match close_current_file(
-                frame,
-                &kpdb_for_menu,
-                &tree_for_menu,
-                &content_for_menu,
-                &current_view_for_menu,
-                &status_bar,
-            ) {
-                Ok(()) => status_bar.set_status_text("Current database closed", 0),
-                Err(error) => status_bar.set_status_text(&format!("Close failed: {error}"), 0),
-            },
-            MENU_EXIT => {
-                if let Err(error) = save_if_data_changed(frame, &kpdb_for_menu) {
-                    MessageDialog::builder(&frame, &format!("Could not save database: {error}"), "Save failed")
-                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-                        .build()
-                        .show_modal();
-                    return;
-                }
-                menu_exit_requested.set(true);
-                frame.close(false);
+                &tree_for_activation,
+                &item,
+                &kpdb_for_activation,
+                &content_for_activation,
+                &current_view_for_activation,
+                &status_bar_for_activation,
+            );
+        }
+    });
+
+    let context_node_for_tree = Rc::clone(&context_node);
+    let tree_for_context = tree;
+    let kpdb_for_context = Rc::clone(&kpdb);
+    tree.on_item_right_click(move |event| {
+        let Some(item) = event.get_item() else {
+            return;
+        };
+        let Some(data) = tree_for_context.get_custom_data(&item) else {
+            return;
+        };
+        let Some(uuid) = data.downcast_ref::<Uuid>() else {
+            return;
+        };
+        context_node_for_tree.set(Some(*uuid));
+        tree_for_context.select_item(&item);
+
+        let is_group = kpdb_for_context
+            .borrow()
+            .as_ref()
+            .and_then(|db| db.get_node_by_id(*uuid))
+            .map(|node| node_is_group(&node))
+            .unwrap_or(false);
+        let mut menu = if is_group {
+            Menu::builder()
+                .append_item(MENU_TREE_NEW_GROUP, "New Group", "Create a new group")
+                .append_item(MENU_TREE_NEW_ENTRY, "New Entry", "Create a new entry")
+                .append_separator()
+                .append_item(MENU_TREE_EDIT, "Edit", "Edit this node")
+                .append_item(MENU_TREE_DELETE, "Delete", "Delete this node")
+                .build()
+        } else {
+            Menu::builder()
+                .append_item(MENU_TREE_EDIT, "Edit", "Edit this node")
+                .append_item(MENU_TREE_DELETE, "Delete", "Delete this node")
+                .build()
+        };
+        tree_for_context.popup_menu(&mut menu, None);
+    });
+    if let Some(root_item) = root_item {
+        tree.select_item(&root_item);
+    }
+    if let Some(root) = kpdb.borrow().as_ref().and_then(KpDb::get_root) {
+        show_node_view(&content, frame, &current_view, &root, &tree, &kpdb, &status_bar);
+        tree.set_focus();
+    }
+
+    let menu_bar_for_toggle = frame.get_menu_bar().expect("menu bar was just installed");
+    menu_bar_for_toggle.check_item(MENU_TOGGLE_TREE, aui.is_pane_shown(TREE_PANE_NAME));
+
+    let menu_exit_requested = Rc::clone(&exit_requested);
+    let kpdb_for_menu = Rc::clone(&kpdb);
+    let tree_for_menu = tree;
+    let content_for_menu = content;
+    let current_view_for_menu = Rc::clone(&current_view);
+    let context_node_for_menu = Rc::clone(&context_node);
+    frame.on_menu(move |event| match event.get_id() {
+        MENU_OPEN => match open_database_from_picker(
+            frame,
+            &kpdb_for_menu,
+            &tree_for_menu,
+            &content_for_menu,
+            &current_view_for_menu,
+            &status_bar,
+        ) {
+            Ok(false) => status_bar.set_status_text("Open cancelled", 0),
+            Ok(true) => {}
+            Err(error) => {
+                MessageDialog::builder(&frame, &error, "Open failed")
+                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+                    .build()
+                    .show_modal();
+                status_bar.set_status_text("Could not open database", 0);
             }
-            MENU_TREE_NEW_GROUP | MENU_TREE_NEW_ENTRY => {
-                let Some(parent_uuid) = context_node_for_menu.get() else {
-                    return;
-                };
-                let Some(parent) = kpdb_for_menu.borrow().as_ref().and_then(|db| db.get_node_by_id(parent_uuid)) else {
-                    status_bar.set_status_text("No database loaded", 0);
-                    return;
-                };
-                if !node_is_group(&parent) {
-                    status_bar.set_status_text("New nodes can only be created in a group", 0);
-                    return;
-                }
-                let result = if let Some(db) = kpdb_for_menu.borrow_mut().as_mut() {
-                    if event.get_id() == MENU_TREE_NEW_GROUP {
-                        db.create_new_group(parent_uuid)
-                    } else {
-                        db.create_new_entry(parent_uuid)
-                    }
+        },
+        MENU_SAVE => match save_if_data_changed(frame, &kpdb_for_menu) {
+            Ok(()) => status_bar.set_status_text("Database saved", 0),
+            Err(error) => status_bar.set_status_text(&format!("Save failed: {error}"), 0),
+        },
+        MENU_CLOSE => match close_current_file(
+            frame,
+            &kpdb_for_menu,
+            &tree_for_menu,
+            &content_for_menu,
+            &current_view_for_menu,
+            &status_bar,
+        ) {
+            Ok(()) => status_bar.set_status_text("Current database closed", 0),
+            Err(error) => status_bar.set_status_text(&format!("Close failed: {error}"), 0),
+        },
+        MENU_EXIT => {
+            if let Err(error) = save_if_data_changed(frame, &kpdb_for_menu) {
+                MessageDialog::builder(&frame, &format!("Could not save database: {error}"), "Save failed")
+                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+                    .build()
+                    .show_modal();
+                return;
+            }
+            menu_exit_requested.set(true);
+            frame.close(false);
+        }
+        MENU_TREE_NEW_GROUP | MENU_TREE_NEW_ENTRY => {
+            let Some(parent_uuid) = context_node_for_menu.get() else {
+                return;
+            };
+            let Some(parent) = kpdb_for_menu.borrow().as_ref().and_then(|db| db.get_node_by_id(parent_uuid)) else {
+                status_bar.set_status_text("No database loaded", 0);
+                return;
+            };
+            if !node_is_group(&parent) {
+                status_bar.set_status_text("New nodes can only be created in a group", 0);
+                return;
+            }
+            let result = if let Some(db) = kpdb_for_menu.borrow_mut().as_mut() {
+                if event.get_id() == MENU_TREE_NEW_GROUP {
+                    db.create_new_group(parent_uuid)
                 } else {
-                    status_bar.set_status_text("No database loaded", 0);
-                    return;
-                };
-                match result {
-                    Ok(node) => {
-                        let uuid = node.borrow().get_uuid();
-                        let editor_result = if node_is_group(&node) {
-                            group_view::show_group_editor(&frame, &node, Rc::clone(&kpdb_for_menu))
-                        } else {
-                            entry_view::show_entry_editor(&frame, &node, Rc::clone(&kpdb_for_menu))
-                        };
-                        if editor_result == wxdragon::ID_OK {
-                            status_bar.set_status_text("Node created", 0);
-                        } else {
-                            status_bar.set_status_text("Node created without changes", 0);
-                        }
-                        refresh_tree(
-                            frame,
-                            &tree_for_menu,
-                            &kpdb_for_menu,
-                            &content_for_menu,
-                            &current_view_for_menu,
-                            &status_bar,
-                            Some(uuid),
-                        );
+                    db.create_new_entry(parent_uuid)
+                }
+            } else {
+                status_bar.set_status_text("No database loaded", 0);
+                return;
+            };
+            match result {
+                Ok(node) => {
+                    let uuid = node.borrow().get_uuid();
+                    let editor_result = if node_is_group(&node) {
+                        group_view::show_group_editor(&frame, &node, Rc::clone(&kpdb_for_menu))
+                    } else {
+                        entry_view::show_entry_editor(&frame, &node, Rc::clone(&kpdb_for_menu))
+                    };
+                    if editor_result == wxdragon::ID_OK {
+                        status_bar.set_status_text("Node created", 0);
+                    } else {
+                        status_bar.set_status_text("Node created without changes", 0);
                     }
-                    Err(error) => status_bar.set_status_text(&format!("Create failed: {error}"), 0),
+                    refresh_tree(
+                        frame,
+                        &tree_for_menu,
+                        &kpdb_for_menu,
+                        &content_for_menu,
+                        &current_view_for_menu,
+                        &status_bar,
+                        Some(uuid),
+                    );
                 }
+                Err(error) => status_bar.set_status_text(&format!("Create failed: {error}"), 0),
             }
-            MENU_TREE_EDIT => {
-                let Some(uuid) = context_node_for_menu.get() else {
-                    return;
-                };
-                let Some(root_item) = tree_for_menu.get_root_item() else {
-                    return;
-                };
-                let Some(item) = find_tree_item(&tree_for_menu, &root_item, uuid) else {
-                    return;
-                };
-                show_node_editor_from_tree(
-                    frame,
-                    &tree_for_menu,
-                    &item,
-                    &kpdb_for_menu,
-                    &content_for_menu,
-                    &current_view_for_menu,
-                    &status_bar,
-                );
+        }
+        MENU_TREE_EDIT => {
+            let Some(uuid) = context_node_for_menu.get() else {
+                return;
+            };
+            let Some(root_item) = tree_for_menu.get_root_item() else {
+                return;
+            };
+            let Some(item) = find_tree_item(&tree_for_menu, &root_item, uuid) else {
+                return;
+            };
+            show_node_editor_from_tree(
+                frame,
+                &tree_for_menu,
+                &item,
+                &kpdb_for_menu,
+                &content_for_menu,
+                &current_view_for_menu,
+                &status_bar,
+            );
+        }
+        MENU_TREE_DELETE => {
+            let Some(uuid) = context_node_for_menu.get() else {
+                return;
+            };
+            let Some(node) = kpdb_for_menu.borrow().as_ref().and_then(|db| db.get_node_by_id(uuid)) else {
+                return;
+            };
+            let Some(parent_uuid) = node.borrow().get_parent() else {
+                status_bar.set_status_text("The database root cannot be deleted", 0);
+                return;
+            };
+            let Some(root_item) = tree_for_menu.get_root_item() else {
+                return;
+            };
+            let Some(tree_item) = find_tree_item(&tree_for_menu, &root_item, uuid) else {
+                return;
+            };
+            let Some(parent_item) = find_tree_item(&tree_for_menu, &root_item, parent_uuid) else {
+                return;
+            };
+            let title = node_title(&node);
+            let dialog = MessageDialog::builder(&frame, &format!("Delete {title}?"), "Confirm deletion")
+                .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
+                .build();
+            let confirmed = dialog.show_modal() == wxdragon::ID_YES;
+            dialog.destroy();
+            if !confirmed {
+                return;
             }
-            MENU_TREE_DELETE => {
-                let Some(uuid) = context_node_for_menu.get() else {
-                    return;
-                };
-                let Some(node) = kpdb_for_menu.borrow().as_ref().and_then(|db| db.get_node_by_id(uuid)) else {
-                    return;
-                };
-                let Some(parent_uuid) = node.borrow().get_parent() else {
-                    status_bar.set_status_text("The database root cannot be deleted", 0);
-                    return;
-                };
-                let Some(root_item) = tree_for_menu.get_root_item() else {
-                    return;
-                };
-                let Some(tree_item) = find_tree_item(&tree_for_menu, &root_item, uuid) else {
-                    return;
-                };
-                let Some(parent_item) = find_tree_item(&tree_for_menu, &root_item, parent_uuid) else {
-                    return;
-                };
-                let title = node_title(&node);
-                let dialog = MessageDialog::builder(&frame, &format!("Delete {title}?"), "Confirm deletion")
-                    .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
-                    .build();
-                let confirmed = dialog.show_modal() == wxdragon::ID_YES;
-                dialog.destroy();
-                if !confirmed {
-                    return;
-                }
-                let delete_result = {
-                    let mut kpdb = kpdb_for_menu.borrow_mut();
-                    kpdb.as_mut().map(|db| db.delete_node(uuid))
-                };
-                match delete_result {
-                    Some(Ok(())) => {
-                        tree_for_menu.delete(&tree_item);
-                        tree_for_menu.select_item(&parent_item);
-                        let (deleted_node, recycle_bin) = kpdb_for_menu
-                            .borrow()
-                            .as_ref()
-                            .map(|db| {
-                                let deleted_node = db.get_node_by_id(uuid);
-                                let recycle_bin = db.db.as_ref().and_then(|database| database.get_recycle_bin());
-                                (deleted_node, recycle_bin)
-                            })
-                            .unwrap_or((None, None));
-                        if let (Some(deleted_node), Some(recycle_bin)) = (deleted_node, recycle_bin)
-                            && let Some(root_item) = tree_for_menu.get_root_item()
-                        {
-                            let recycle_bin_uuid = recycle_bin.borrow().get_uuid();
-                            let recycle_bin_item = find_tree_item(&tree_for_menu, &root_item, recycle_bin_uuid)
-                                .or_else(|| append_node(&tree_for_menu, &root_item, &recycle_bin, kpdb_for_menu.borrow().as_ref()));
-                            if let Some(recycle_bin_item) = recycle_bin_item {
-                                let deleted_item = find_tree_item(&tree_for_menu, &recycle_bin_item, uuid).or_else(|| {
-                                    append_node(&tree_for_menu, &recycle_bin_item, &deleted_node, kpdb_for_menu.borrow().as_ref())
-                                });
-                                tree_for_menu.expand(&recycle_bin_item);
-                                if let Some(deleted_item) = deleted_item {
-                                    tree_for_menu.ensure_visible(&deleted_item);
-                                }
+            let delete_result = {
+                let mut kpdb = kpdb_for_menu.borrow_mut();
+                kpdb.as_mut().map(|db| db.delete_node(uuid))
+            };
+            match delete_result {
+                Some(Ok(())) => {
+                    tree_for_menu.delete(&tree_item);
+                    tree_for_menu.select_item(&parent_item);
+                    let (deleted_node, recycle_bin) = kpdb_for_menu
+                        .borrow()
+                        .as_ref()
+                        .map(|db| {
+                            let deleted_node = db.get_node_by_id(uuid);
+                            let recycle_bin = db.db.as_ref().and_then(|database| database.get_recycle_bin());
+                            (deleted_node, recycle_bin)
+                        })
+                        .unwrap_or((None, None));
+                    if let (Some(deleted_node), Some(recycle_bin)) = (deleted_node, recycle_bin)
+                        && let Some(root_item) = tree_for_menu.get_root_item()
+                    {
+                        let recycle_bin_uuid = recycle_bin.borrow().get_uuid();
+                        let recycle_bin_item = find_tree_item(&tree_for_menu, &root_item, recycle_bin_uuid)
+                            .or_else(|| append_node(&tree_for_menu, &root_item, &recycle_bin, kpdb_for_menu.borrow().as_ref()));
+                        if let Some(recycle_bin_item) = recycle_bin_item {
+                            let deleted_item = find_tree_item(&tree_for_menu, &recycle_bin_item, uuid)
+                                .or_else(|| append_node(&tree_for_menu, &recycle_bin_item, &deleted_node, kpdb_for_menu.borrow().as_ref()));
+                            tree_for_menu.expand(&recycle_bin_item);
+                            if let Some(deleted_item) = deleted_item {
+                                tree_for_menu.ensure_visible(&deleted_item);
                             }
                         }
-                        if let Some(parent) = kpdb_for_menu.borrow().as_ref().and_then(|db| db.get_node_by_id(parent_uuid)) {
-                            show_node_view(
-                                &content_for_menu,
-                                frame,
-                                &current_view_for_menu,
-                                &parent,
-                                &tree_for_menu,
-                                &kpdb_for_menu,
-                                &status_bar,
-                            );
-                        }
-                        status_bar.set_status_text("Node deleted", 0);
                     }
-                    Some(Err(error)) => status_bar.set_status_text(&format!("Delete failed: {error}"), 0),
-                    None => status_bar.set_status_text("No database loaded", 0),
+                    if let Some(parent) = kpdb_for_menu.borrow().as_ref().and_then(|db| db.get_node_by_id(parent_uuid)) {
+                        show_node_view(
+                            &content_for_menu,
+                            frame,
+                            &current_view_for_menu,
+                            &parent,
+                            &tree_for_menu,
+                            &kpdb_for_menu,
+                            &status_bar,
+                        );
+                    }
+                    status_bar.set_status_text("Node deleted", 0);
                 }
+                Some(Err(error)) => status_bar.set_status_text(&format!("Delete failed: {error}"), 0),
+                None => status_bar.set_status_text("No database loaded", 0),
             }
-            MENU_TOGGLE_TREE => {
-                let shown = !aui.is_pane_shown(TREE_PANE_NAME);
-                if aui.set_pane_shown(TREE_PANE_NAME, shown) {
-                    aui.update();
-                    menu_bar_for_toggle.check_item(MENU_TOGGLE_TREE, shown);
-                    status_bar.set_status_text("Architecture tree visibility changed", 0);
-                }
+        }
+        MENU_TOGGLE_TREE => {
+            let shown = !aui.is_pane_shown(TREE_PANE_NAME);
+            if aui.set_pane_shown(TREE_PANE_NAME, shown) {
+                aui.update();
+                menu_bar_for_toggle.check_item(MENU_TOGGLE_TREE, shown);
+                status_bar.set_status_text("Architecture tree visibility changed", 0);
+            }
+        }
+        MENU_ABOUT => {
+            MessageDialog::builder(&frame, "A KeePass database viewer.", "About mypass")
+                .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+                .build()
+                .show_modal();
+        }
+        _ => {}
+    });
+
+    let menu_bar_for_open = frame.get_menu_bar().expect("menu bar was just installed");
+    frame.on_menu_opened(move |_| {
+        menu_bar_for_open.check_item(MENU_TOGGLE_TREE, aui.is_pane_shown(TREE_PANE_NAME));
+    });
+
+    let mut popup_menu = Menu::builder()
+        .append_item(MENU_TOGGLE_SHOW, "Open Application", "Open the main application window")
+        .append_separator()
+        .append_item(MENU_SETTINGS, "Settings", "Open application settings")
+        .append_item(MENU_ABOUT, "About", "About this application")
+        .append_separator()
+        .append_item(MENU_EXIT, "Exit", "Exit the application")
+        .build();
+
+    let taskbar = TaskBarIcon::builder().with_icon_type(TaskBarIconType::Default).build();
+    taskbar.set_popup_menu(&mut popup_menu);
+
+    // Bind menu event handler to the TaskBarIcon itself (not the frame)
+    let tray_exit_requested = Rc::clone(&exit_requested);
+    taskbar.on_menu(move |event| {
+        let menu_id = event.get_id();
+        match menu_id {
+            MENU_TOGGLE_SHOW => {
+                log::info!("Open Application clicked");
+                frame.show(true);
+            }
+            MENU_SETTINGS => {
+                log::info!("Settings clicked");
             }
             MENU_ABOUT => {
                 MessageDialog::builder(&frame, "A KeePass database viewer.", "About mypass")
@@ -925,133 +960,94 @@ fn main() {
                     .build()
                     .show_modal();
             }
-            _ => {}
-        });
-
-        let menu_bar_for_open = frame.get_menu_bar().expect("menu bar was just installed");
-        frame.on_menu_opened(move |_| {
-            menu_bar_for_open.check_item(MENU_TOGGLE_TREE, aui.is_pane_shown(TREE_PANE_NAME));
-        });
-
-        let mut popup_menu = Menu::builder()
-            .append_item(MENU_TOGGLE_SHOW, "Open Application", "Open the main application window")
-            .append_separator()
-            .append_item(MENU_SETTINGS, "Settings", "Open application settings")
-            .append_item(MENU_ABOUT, "About", "About this application")
-            .append_separator()
-            .append_item(MENU_EXIT, "Exit", "Exit the application")
-            .build();
-
-        let taskbar = TaskBarIcon::builder().with_icon_type(TaskBarIconType::Default).build();
-        taskbar.set_popup_menu(&mut popup_menu);
-
-        // Bind menu event handler to the TaskBarIcon itself (not the frame)
-        let tray_exit_requested = Rc::clone(&exit_requested);
-        taskbar.on_menu(move |event| {
-            let menu_id = event.get_id();
-            match menu_id {
-                MENU_TOGGLE_SHOW => {
-                    log::info!("Open Application clicked");
-                    frame.show(true);
-                }
-                MENU_SETTINGS => {
-                    log::info!("Settings clicked");
-                }
-                MENU_ABOUT => {
-                    MessageDialog::builder(&frame, "A KeePass database viewer.", "About mypass")
-                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-                        .build()
-                        .show_modal();
-                }
-                MENU_EXIT => {
-                    log::info!("Exit clicked");
-                    tray_exit_requested.set(true);
-                    frame.close(true);
-                }
-                _ => {
-                    log::warn!("Unknown menu item clicked: {menu_id}");
-                }
+            MENU_EXIT => {
+                log::info!("Exit clicked");
+                tray_exit_requested.set(true);
+                frame.close(true);
             }
-        });
-
-        let icon = ArtProvider::get_bitmap(ArtId::Help, ArtClient::Menu, Some(Size::new(16, 16)));
-
-        if let Some(icon) = icon {
-            if !taskbar.set_icon(&icon, "mypass") {
-                log::warn!("Failed to install the mypass tray icon");
-            }
-        } else {
-            if let Some(fallback) = Bitmap::new(16, 16)
-                && !taskbar.set_icon(&fallback, "mypass")
-            {
-                log::warn!("Failed to install the fallback mypass tray icon");
+            _ => {
+                log::warn!("Unknown menu item clicked: {menu_id}");
             }
         }
-        TRAY_STATE.with(|state| {
-            *state.borrow_mut() = Some(TrayState { taskbar, popup_menu });
-        });
+    });
 
-        frame.show(true);
-        frame.centre();
+    let icon = ArtProvider::get_bitmap(ArtId::Help, ArtClient::Menu, Some(Size::new(16, 16)));
 
-        let close_exit_requested = Rc::clone(&exit_requested);
-        let kpdb_for_close = Rc::clone(&kpdb);
-        let aui_for_close = aui;
-        frame.on_close(move |evt| {
-            if let wxdragon::WindowEventData::General(event) = &evt
-                && event.can_veto()
-                && !close_exit_requested.get()
-            {
-                use MessageDialogStyle as MDS;
-                let res = MessageDialog::builder(&frame, "Are you sure you want to close the application?", "Confirm Close")
-                    .with_style(MDS::OK | MDS::Cancel | MDS::IconInformation)
-                    .build()
-                    .show_modal();
+    if let Some(icon) = icon {
+        if !taskbar.set_icon(&icon, "mypass") {
+            log::warn!("Failed to install the mypass tray icon");
+        }
+    } else {
+        if let Some(fallback) = Bitmap::new(16, 16)
+            && !taskbar.set_icon(&fallback, "mypass")
+        {
+            log::warn!("Failed to install the fallback mypass tray icon");
+        }
+    }
+    TRAY_STATE.with(|state| {
+        *state.borrow_mut() = Some(TrayState { taskbar, popup_menu });
+    });
 
-                if res != wxdragon::ID_OK {
-                    event.veto();
-                    return;
-                }
-            }
-            if let Err(error) = save_if_data_changed(frame, &kpdb_for_close) {
-                MessageDialog::builder(&frame, &format!("Could not save database: {error}"), "Save failed")
-                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-                    .build()
-                    .show_modal();
-                if let wxdragon::WindowEventData::General(event) = &evt {
-                    event.veto();
-                }
+    frame.show(true);
+    frame.centre();
+
+    let close_exit_requested = Rc::clone(&exit_requested);
+    let kpdb_for_close = Rc::clone(&kpdb);
+    let aui_for_close = aui;
+    frame.on_close(move |evt| {
+        if let wxdragon::WindowEventData::General(event) = &evt
+            && event.can_veto()
+            && !close_exit_requested.get()
+        {
+            use MessageDialogStyle as MDS;
+            let res = MessageDialog::builder(&frame, "Are you sure you want to close the application?", "Confirm Close")
+                .with_style(MDS::OK | MDS::Cancel | MDS::IconInformation)
+                .build()
+                .show_modal();
+
+            if res != wxdragon::ID_OK {
+                event.veto();
                 return;
             }
-            close_exit_requested.set(true);
-            aui_for_close.uninit();
+        }
+        if let Err(error) = save_if_data_changed(frame, &kpdb_for_close) {
+            MessageDialog::builder(&frame, &format!("Could not save database: {error}"), "Save failed")
+                .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+                .build()
+                .show_modal();
             if let wxdragon::WindowEventData::General(event) = &evt {
-                event.skip(true);
+                event.veto();
             }
-        });
+            return;
+        }
+        close_exit_requested.set(true);
+        aui_for_close.uninit();
+        if let wxdragon::WindowEventData::General(event) = &evt {
+            event.skip(true);
+        }
+    });
 
-        let frame_ptr = frame.handle_ptr();
-        frame.on_destroy(move |evt| {
-            let wxdragon::WindowEventData::General(event) = &evt else {
-                log::error!("Unexpected Frame destroy event received: {evt:?}");
-                return;
-            };
-            let Some(event_object) = event.get_event_object() else {
-                log::error!("Failed to get event object from Frame destroy event: {event:?}");
-                return;
-            };
-            let curr_p = event_object.as_ptr();
-            if curr_p != frame_ptr {
-                log::error!("Destroy event received for a different object {curr_p:p} than the Frame pointer {frame_ptr:?}",);
-                return;
+    let frame_ptr = frame.handle_ptr();
+    frame.on_destroy(move |evt| {
+        let wxdragon::WindowEventData::General(event) = &evt else {
+            log::error!("Unexpected Frame destroy event received: {evt:?}");
+            return;
+        };
+        let Some(event_object) = event.get_event_object() else {
+            log::error!("Failed to get event object from Frame destroy event: {event:?}");
+            return;
+        };
+        let curr_p = event_object.as_ptr();
+        if curr_p != frame_ptr {
+            log::error!("Destroy event received for a different object {curr_p:p} than the Frame pointer {frame_ptr:?}",);
+            return;
+        }
+        TRAY_STATE.with(|state| {
+            if let Some(mut tray) = state.borrow_mut().take() {
+                tray.taskbar.destroy();
+                tray.popup_menu.destroy_menu();
             }
-            TRAY_STATE.with(|state| {
-                if let Some(mut tray) = state.borrow_mut().take() {
-                    tray.taskbar.destroy();
-                    tray.popup_menu.destroy_menu();
-                }
-            });
-            log::info!("Application destroyed, event is {evt:?}");
         });
+        log::info!("Application destroyed, event is {evt:?}");
     });
 }

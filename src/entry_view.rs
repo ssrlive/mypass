@@ -13,6 +13,24 @@ use wxdragon::{
     ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, TextCtrl, TextCtrlStyle, TimePickerCtrl, WxWidget,
 };
 
+pub(crate) fn bitmap_for_builtin_icon(icon: &str, size: u32) -> Option<Bitmap> {
+    let icon = icon.trim();
+    let center = size / 2;
+    let baseline = size.saturating_mul(17) / 20;
+    let font_size = size.saturating_mul(4) / 5;
+    let svg = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}">
+<text x="{center}" y="{baseline}" text-anchor="middle" font-family="Segoe UI Emoji" font-size="{font_size}">{icon}</text>
+</svg>"#
+    );
+    let mut options = resvg::usvg::Options::default();
+    options.fontdb_mut().load_system_fonts();
+    let tree = resvg::usvg::Tree::from_data(svg.as_bytes(), &options).ok()?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(size, size)?;
+    resvg::render(&tree, resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
+    Bitmap::from_rgba(pixmap.data(), size, size)
+}
+
 pub fn build_entry_view(parent: &Panel, frame: Frame, node: &NodePtr, refresh: Rc<dyn Fn()>, kpdb: Rc<RefCell<Option<KpDb>>>) {
     let Some(entry) = with_node::<Entry, _, _>(node, |entry| entry.clone()) else {
         return;
@@ -32,12 +50,14 @@ pub fn build_entry_view(parent: &Panel, frame: Frame, node: &NodePtr, refresh: R
     let header_sizer = BoxSizer::builder(Orientation::Horizontal).build();
     match entry.get_icon() {
         Icon::BuiltIn(icon_id) => {
-            let title_icon = StaticText::builder(parent).with_label(&icon_id.to_string()).build();
-            if let Some(font) = wxdragon::Font::builder().with_point_size(20).build() {
-                title_icon.set_font(&font);
+            if let Some(bitmap) = bitmap_for_builtin_icon(&icon_id.to_string(), 28) {
+                let title_icon = StaticBitmap::builder(parent)
+                    .with_bitmap(Some(bitmap))
+                    .with_size(Size::new(32, 32))
+                    .build();
+                title_icon.set_tooltip(&format!("Built-in icon {icon_id}"));
+                header_sizer.add(&title_icon, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
             }
-            title_icon.set_tooltip(&format!("Built-in icon {icon_id}"));
-            header_sizer.add(&title_icon, 0, SizerFlag::AlignCenterVertical | SizerFlag::Right, 8);
         }
         Icon::Custom(uuid) => {
             let custom_icon = kpdb
@@ -462,12 +482,9 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
         let row = BoxSizer::builder(Orientation::Horizontal).build();
         for icon_number in row_start..(row_start + ICONS_PER_ROW).min(IconId::count()) {
             let icon_number: IconId = icon_number.try_into().unwrap_or(IconId::KEY);
-            let button = Button::builder(&icon_page)
-                .with_label(&icon_number.to_string())
-                .with_size(Size::new(36, 36))
-                .build();
-            if let Some(font) = wxdragon::Font::builder().with_point_size(18).build() {
-                button.set_font(&font);
+            let button = Button::builder(&icon_page).with_size(Size::new(36, 36)).build();
+            if let Some(bitmap) = bitmap_for_builtin_icon(&icon_number.to_string(), 28) {
+                button.set_bitmap_label(&bitmap);
             }
             button.set_tooltip(&format!("Built-in icon {icon_number}"));
             let icon = Icon::BuiltIn(icon_number);

@@ -469,7 +469,8 @@ fn open_database_from_picker(
     Ok(true)
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     dotenvy::dotenv().ok();
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();

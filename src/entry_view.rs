@@ -1,5 +1,6 @@
 use crate::add_detail_row;
 use crate::favicon::{FaviconDownloader, image_from_bytes};
+use crate::icon_cache::icon_for_emoji;
 use crate::keepass::KpDb;
 use chrono::{Datelike, Duration, Local, Months, NaiveDate, NaiveDateTime, Timelike};
 use keepass_ng::db::{AutoType, Entry, Icon, IconId, Node, NodePtr, with_node, with_node_mut};
@@ -14,24 +15,6 @@ use wxdragon::{
     ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, TextCtrl, TextCtrlStyle, TimePickerCtrl, Timer,
     WindowEvents, WxWidget,
 };
-
-pub(crate) fn bitmap_for_builtin_icon(icon: &str, size: u32) -> Option<Bitmap> {
-    let icon = icon.trim();
-    let center = size / 2;
-    let baseline = size.saturating_mul(17) / 20;
-    let font_size = size.saturating_mul(4) / 5;
-    let svg = format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}">
-<text x="{center}" y="{baseline}" text-anchor="middle" font-family="Segoe UI Emoji" font-size="{font_size}">{icon}</text>
-</svg>"#
-    );
-    let mut options = resvg::usvg::Options::default();
-    options.fontdb_mut().load_system_fonts();
-    let tree = resvg::usvg::Tree::from_data(svg.as_bytes(), &options).ok()?;
-    let mut pixmap = resvg::tiny_skia::Pixmap::new(size, size)?;
-    resvg::render(&tree, resvg::tiny_skia::Transform::default(), &mut pixmap.as_mut());
-    Bitmap::from_rgba(pixmap.data(), size, size)
-}
 
 pub fn build_entry_view(parent: &Panel, frame: Frame, node: &NodePtr, refresh: Rc<dyn Fn()>, kpdb: Rc<RefCell<Option<KpDb>>>) {
     let Some(entry) = with_node::<Entry, _, _>(node, |entry| entry.clone()) else {
@@ -52,7 +35,7 @@ pub fn build_entry_view(parent: &Panel, frame: Frame, node: &NodePtr, refresh: R
     let header_sizer = BoxSizer::builder(Orientation::Horizontal).build();
     match entry.get_icon() {
         Icon::BuiltIn(icon_id) => {
-            if let Some(bitmap) = bitmap_for_builtin_icon(&icon_id.to_string(), 28) {
+            if let Some(bitmap) = icon_for_emoji(&icon_id.to_string(), 28) {
                 let title_icon = StaticBitmap::builder(parent)
                     .with_bitmap(Some(bitmap))
                     .with_size(Size::new(32, 32))
@@ -96,7 +79,7 @@ pub fn build_entry_view(parent: &Panel, frame: Frame, node: &NodePtr, refresh: R
     let password = entry.get_password().unwrap_or("").to_owned();
     let password_panel = Panel::builder(&general_page).build();
     let password_value = TextCtrl::builder(&password_panel)
-        .with_value("******")
+        .with_value(&password)
         .with_style(TextCtrlStyle::Password | TextCtrlStyle::ReadOnly)
         .with_size(Size::new(240, 34))
         .build();
@@ -106,10 +89,10 @@ pub fn build_entry_view(parent: &Panel, frame: Frame, node: &NodePtr, refresh: R
         .with_size(Size::new(240, 34))
         .build();
     password_visible_value.show(false);
-    let password_toggle = Button::builder(&password_panel)
-        .with_label("👁")
-        .with_size(Size::new(38, 34))
-        .build();
+    let password_toggle = Button::builder(&password_panel).with_size(Size::new(38, 34)).build();
+    if let Some(bitmap) = icon_for_emoji("👁", 20) {
+        password_toggle.set_bitmap_label(&bitmap);
+    }
     password_toggle.set_tooltip("Show or hide password");
     let password_visible = Rc::new(Cell::new(false));
     let password_visible_for_toggle = Rc::clone(&password_visible);
@@ -120,11 +103,11 @@ pub fn build_entry_view(parent: &Panel, frame: Frame, node: &NodePtr, refresh: R
         let visible = !password_visible_for_toggle.get();
         password_visible_for_toggle.set(visible);
         if visible {
-            password_visible_value_for_toggle.set_value(&password);
+            password_visible_value_for_toggle.set_value(&password_value_for_toggle.get_value());
             password_value_for_toggle.show(false);
             password_visible_value_for_toggle.show(true);
         } else {
-            password_value_for_toggle.set_value("******");
+            password_value_for_toggle.set_value(&password_visible_value_for_toggle.get_value());
             password_visible_value_for_toggle.show(false);
             password_value_for_toggle.show(true);
         }
@@ -279,10 +262,10 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
         .build();
     let password_visible = TextCtrl::builder(&password_panel).with_value(&password_value).build();
     password_visible.show(false);
-    let password_toggle = Button::builder(&password_panel)
-        .with_label("👁")
-        .with_size(Size::new(38, 34))
-        .build();
+    let password_toggle = Button::builder(&password_panel).with_size(Size::new(38, 34)).build();
+    if let Some(bitmap) = icon_for_emoji("👁", 20) {
+        password_toggle.set_bitmap_label(&bitmap);
+    }
     password_toggle.set_tooltip("Show or hide password");
     let password_for_toggle = password;
     let password_visible_for_toggle = password_visible;
@@ -309,7 +292,10 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
     password_controls.add(&password_toggle, 0, SizerFlag::All, 4);
     password_panel.set_sizer(password_controls, true);
     let url = TextCtrl::builder(&entry_page).with_value(entry.get_url().unwrap_or("")).build();
-    let download_favicon = Button::builder(&entry_page).with_label("⬇️").with_size(Size::new(38, 34)).build();
+    let download_favicon = Button::builder(&entry_page).with_size(Size::new(38, 34)).build();
+    if let Some(bitmap) = icon_for_emoji("⬇️", 20) {
+        download_favicon.set_bitmap_label(&bitmap);
+    }
     download_favicon.set_tooltip("Download favicon from URL");
     let tags = TextCtrl::builder(&entry_page).with_value(&entry.get_tags().join(", ")).build();
     let expires = CheckBox::builder(&entry_page)
@@ -485,7 +471,7 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
         for icon_number in row_start..(row_start + ICONS_PER_ROW).min(IconId::count()) {
             let icon_number: IconId = icon_number.try_into().unwrap_or(IconId::KEY);
             let button = Button::builder(&icon_page).with_size(Size::new(36, 36)).build();
-            if let Some(bitmap) = bitmap_for_builtin_icon(&icon_number.to_string(), 28) {
+            if let Some(bitmap) = icon_for_emoji(&icon_number.to_string(), 28) {
                 button.set_bitmap_label(&bitmap);
             }
             button.set_tooltip(&format!("Built-in icon {icon_number}"));

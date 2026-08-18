@@ -1,6 +1,7 @@
 use crate::{
-    entry_view::{bitmap_for_builtin_icon, bitmap_for_icon, bitmap_for_icon_fixed},
+    entry_view::{bitmap_for_icon, bitmap_for_icon_fixed},
     find_tree_item,
+    icon_cache::icon_for_emoji,
     keepass::KpDb,
     node_title, show_node_view,
 };
@@ -51,7 +52,7 @@ pub fn build_group_view(
     let header_sizer = BoxSizer::builder(Orientation::Horizontal).build();
     match group.borrow().get_icon() {
         Icon::BuiltIn(icon_id) => {
-            if let Some(bitmap) = bitmap_for_builtin_icon(&icon_id.to_string(), 28) {
+            if let Some(bitmap) = icon_for_emoji(icon_id.to_string().trim(), 28) {
                 let group_icon = StaticBitmap::builder(parent)
                     .with_bitmap(Some(bitmap))
                     .with_size(Size::new(32, 32))
@@ -95,7 +96,7 @@ pub fn build_group_view(
         let child_icon = child.borrow().get_icon();
         let (icon_label, image_index) = match child_icon {
             Icon::BuiltIn(icon_id) => {
-                let image_index = bitmap_for_builtin_icon(&icon_id.to_string(), 20).map(|bitmap| image_list.add_bitmap(&bitmap));
+                let image_index = icon_for_emoji(&icon_id.to_string(), 20).map(|bitmap| image_list.add_bitmap(&bitmap));
                 (String::new(), image_index)
             }
             Icon::Custom(uuid) => {
@@ -270,7 +271,7 @@ pub(crate) fn show_group_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<
         for icon_number in row_start..(row_start + ICONS_PER_ROW).min(IconId::count()) {
             let icon_number: IconId = icon_number.try_into().unwrap_or(IconId::KEY);
             let button = Button::builder(&icon_page).with_size(Size::new(36, 36)).build();
-            if let Some(bitmap) = bitmap_for_builtin_icon(&icon_number.to_string(), 28) {
+            if let Some(bitmap) = icon_for_emoji(&icon_number.to_string(), 28) {
                 button.set_bitmap_label(&bitmap);
             }
             let icon = Icon::BuiltIn(icon_number);

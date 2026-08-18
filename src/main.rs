@@ -12,6 +12,7 @@ pub mod entry_view;
 pub mod error;
 pub mod favicon;
 pub mod group_view;
+pub mod icon_cache;
 pub mod keepass;
 
 use keepass::KpDb;
@@ -51,7 +52,7 @@ fn node_title(node: &NodePtr) -> String {
 fn node_icon_index(tree: &TreeCtrl, node: &NodePtr, kpdb: Option<&KpDb>) -> Option<i32> {
     let image_list = tree.get_image_list()?;
     let bitmap = match node.borrow().get_icon() {
-        Icon::BuiltIn(icon_id) => entry_view::bitmap_for_builtin_icon(&icon_id.to_string(), 20),
+        Icon::BuiltIn(icon_id) => icon_cache::icon_for_emoji(&icon_id.to_string(), 20),
         Icon::Custom(uuid) => kpdb
             .and_then(|db| db.db.as_ref())
             .and_then(|db| db.meta.custom_icon(uuid))
@@ -347,10 +348,10 @@ fn open_database_from_picker(
         .build();
     let password_visible_control = TextCtrl::builder(&password_panel).with_size(Size::new(-1, 24)).build();
     password_visible_control.show(false);
-    let password_toggle = Button::builder(&password_panel)
-        .with_label("👁")
-        .with_size(Size::new(32, 24))
-        .build();
+    let password_toggle = Button::builder(&password_panel).with_size(Size::new(32, 24)).build();
+    if let Some(bitmap) = icon_cache::icon_for_emoji("👁", 16) {
+        password_toggle.set_bitmap_label(&bitmap);
+    }
     password_toggle.set_tooltip("Show or hide password");
     let password_is_visible = Rc::new(Cell::new(false));
     let password_for_toggle = password_control;
@@ -473,7 +474,7 @@ fn open_database_from_picker(
 async fn main() {
     dotenvy::dotenv().ok();
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("trace")).init();
     if let Err(e) = wxdragon::main(on_wxdragon_init) {
         log::error!("Failed to run wxDragon application: {e}");
     }
@@ -991,6 +992,32 @@ fn on_wxdragon_init(_app: App) {
 
     frame.show(true);
     frame.centre();
+
+    let icon_warmup_timer = Rc::new(Timer::new(&frame));
+    let icon_warmup_index = Rc::new(Cell::new(0usize));
+    let icon_warmup_size = Rc::new(Cell::new(28u32));
+    let timer_for_warmup = Rc::clone(&icon_warmup_timer);
+    let timer_for_destroy = Rc::clone(&icon_warmup_timer);
+    icon_warmup_timer.on_tick(move |_| {
+        let index = icon_warmup_index.get();
+        let size = icon_warmup_size.get();
+        if icon_cache::warm_up_step(size, index) {
+            icon_warmup_index.set(index + 1);
+            return;
+        }
+
+        if size == 28 {
+            icon_warmup_size.set(20);
+            icon_warmup_index.set(0);
+            return;
+        }
+        timer_for_warmup.stop();
+        log::info!("Icon warmup completed");
+    });
+    icon_warmup_timer.start(100, false);
+    frame.on_destroy(move |_| {
+        timer_for_destroy.stop();
+    });
 
     let close_exit_requested = Rc::clone(&exit_requested);
     let kpdb_for_close = Rc::clone(&kpdb);

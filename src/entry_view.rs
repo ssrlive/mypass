@@ -6,11 +6,13 @@ use keepass_ng::db::{AutoType, Entry, Icon, IconId, Node, NodePtr, with_node, wi
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
+    sync::{Arc, Mutex},
 };
 use wxdragon::{
     Bitmap, BoxSizer, Button, ButtonEvents, CheckBox, Choice, DatePickerCtrl, DatePickerCtrlStyle, Dialog, FlexGridSizer, Frame,
     HyperlinkCtrl, ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog, MessageDialogStyle, Notebook, Orientation, Panel,
-    ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, TextCtrl, TextCtrlStyle, TimePickerCtrl, WxWidget,
+    ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, TextCtrl, TextCtrlStyle, TimePickerCtrl, Timer,
+    WindowEvents, WxWidget,
 };
 
 pub(crate) fn bitmap_for_builtin_icon(icon: &str, size: u32) -> Option<Bitmap> {
@@ -584,20 +586,26 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
     }
 
     let url_for_download = url;
+    #[allow(clippy::type_complexity)]
+    let download_result: Arc<Mutex<Option<Result<(Vec<u8>, String), String>>>> = Arc::new(Mutex::new(None));
+    let download_timer = Rc::new(Timer::new(&icon_page));
+    let download_timer_for_tick = Rc::clone(&download_timer);
+    let download_timer_to_stop = Rc::clone(&download_timer);
+    let download_result_for_tick = Arc::clone(&download_result);
+    let download_button_for_tick = download_favicon;
     let parent_for_download = icon_page;
     let kpdb_for_download = Rc::clone(&kpdb);
     let selected_icon_for_download = Rc::clone(&selected_icon);
     let selected_label_for_download = selected_icon_label;
-    download_favicon.on_click(move |_| {
-        let website_url = url_for_download.get_value();
-        let result = FaviconDownloader::new()
-            .and_then(|downloader| downloader.download(&website_url))
-            .and_then(|favicon| {
-                favicon.ok_or_else(|| "No favicon found for this URL".into()).and_then(|favicon| {
-                    let source_url = favicon.source_url.to_string();
-                    favicon.to_png_bytes().map(|png_bytes| (png_bytes, source_url))
-                })
-            });
+    let icon_buttons_for_download = Rc::clone(&icon_buttons);
+    let custom_icon_scroll_for_download = custom_icon_scroll;
+    let add_custom_icon_button_for_download = add_custom_icon_button;
+    download_timer_for_tick.on_tick(move |_| {
+        let Some(result) = download_result_for_tick.lock().unwrap().take() else {
+            return;
+        };
+        download_timer_to_stop.stop();
+        download_button_for_tick.enable(true);
         match result {
             Ok((png_bytes, source_url)) => {
                 let Some(uuid) = kpdb_for_download
@@ -614,18 +622,21 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
                 if let Some(db) = kpdb_for_download.borrow().as_ref().and_then(|db| db.db.as_ref())
                     && let Some(icon) = db.meta.custom_icon(uuid)
                 {
-                    let already_added = icon_buttons.borrow().iter().any(|(_, icon)| *icon == Icon::Custom(uuid));
+                    let already_added = icon_buttons_for_download
+                        .borrow()
+                        .iter()
+                        .any(|(_, icon)| *icon == Icon::Custom(uuid));
                     if !already_added {
                         let data = icon.data.clone();
                         let name = icon.name().map(str::to_owned);
-                        add_custom_icon_button(uuid, &data, name.as_deref());
+                        add_custom_icon_button_for_download(uuid, &data, name.as_deref());
                     }
-                    custom_icon_scroll.layout();
-                    icon_page.layout();
+                    custom_icon_scroll_for_download.layout();
+                    parent_for_download.layout();
                 }
                 selected_icon_for_download.set(Icon::Custom(uuid));
                 selected_label_for_download.set_label(&format!("Selected custom icon {uuid}"));
-                for (button, icon) in icon_buttons.borrow().iter() {
+                for (button, icon) in icon_buttons_for_download.borrow().iter() {
                     button.set_background_color(if *icon == Icon::Custom(uuid) {
                         selected_background
                     } else {
@@ -634,12 +645,35 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
                 }
             }
             Err(error) => {
-                MessageDialog::builder(&parent_for_download, &error.to_string(), "Download favicon")
+                MessageDialog::builder(&parent_for_download, &error, "Download favicon")
                     .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
                     .build()
                     .show_modal();
             }
         }
+    });
+    let download_timer_for_destroy = Rc::clone(&download_timer);
+    icon_page.on_destroy(move |_| download_timer_for_destroy.stop());
+    let download_timer_for_click = Rc::clone(&download_timer);
+    let download_result_for_worker = Arc::clone(&download_result);
+    download_favicon.on_click(move |_| {
+        download_favicon.enable(false);
+        let website_url = url_for_download.get_value();
+        let download_result_for_worker = Arc::clone(&download_result_for_worker);
+        std::thread::spawn(move || {
+            let result = FaviconDownloader::new()
+                .and_then(|downloader| downloader.download(&website_url))
+                .and_then(|favicon| {
+                    favicon.ok_or_else(|| "No favicon found for this URL".into()).and_then(|favicon| {
+                        let source_url = favicon.source_url.to_string();
+                        favicon.to_png_bytes().map(|png_bytes| (png_bytes, source_url))
+                    })
+                })
+                .map_err(|error| error.to_string());
+            *download_result_for_worker.lock().unwrap() = Some(result);
+            wxdragon::call_after(Box::new(|| {}));
+        });
+        download_timer_for_click.start(100, false);
     });
 
     let autotype_page = Panel::builder(&notebook).build();

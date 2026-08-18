@@ -1,6 +1,8 @@
 use crate::{
     entry_view::{bitmap_for_builtin_icon, bitmap_for_icon, bitmap_for_icon_fixed},
-    find_tree_item, keepass::KpDb, node_title, show_node_view,
+    find_tree_item,
+    keepass::KpDb,
+    node_title, show_node_view,
 };
 use keepass_ng::{
     Uuid,

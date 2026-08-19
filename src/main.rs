@@ -523,6 +523,12 @@ fn open_database_path(
     Ok(true)
 }
 
+fn application_icon() -> Option<Bitmap> {
+    const MAIN_ICON_PNG: &[u8] = include_bytes!("../res/main-icon.png");
+    let image = image::load_from_memory(MAIN_ICON_PNG).ok()?.to_rgba8();
+    Bitmap::from_rgba(image.as_raw(), image.width(), image.height())
+}
+
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
@@ -535,7 +541,11 @@ async fn main() {
 
 fn on_wxdragon_init(_app: App) {
     let settings = Rc::new(RefCell::new(Settings::load()));
+    let application_icon = application_icon();
     let frame = Frame::builder().with_title("mypass").with_size(Size::new(960, 640)).build();
+    if let Some(icon) = application_icon.as_ref() {
+        frame.set_icon(icon);
+    }
     let saved_position = settings.borrow().window_position;
     let saved_size = settings.borrow().window_size;
     match (saved_position, saved_size) {
@@ -618,7 +628,6 @@ fn on_wxdragon_init(_app: App) {
     tree_sizer.add(&tree, 1, SizerFlag::All | SizerFlag::Expand, 4);
     tree_pane.set_sizer(tree_sizer, true);
     let root_item = populate_tree(&tree, kpdb.borrow().as_ref());
-    let exit_requested = Rc::new(Cell::new(false));
 
     let aui = AuiManager::builder(&frame).build();
     let tree_width = settings.borrow().tree_width.unwrap_or(300);
@@ -792,7 +801,6 @@ fn on_wxdragon_init(_app: App) {
     let menu_bar_for_toggle = frame.get_menu_bar().expect("menu bar was just installed");
     menu_bar_for_toggle.check_item(MENU_TOGGLE_TREE, aui.is_pane_shown(TREE_PANE_NAME));
 
-    let menu_exit_requested = Rc::clone(&exit_requested);
     let kpdb_for_menu = Rc::clone(&kpdb);
     let tree_for_menu = tree;
     let content_for_menu = content;
@@ -882,8 +890,7 @@ fn on_wxdragon_init(_app: App) {
                     .show_modal();
                 return;
             }
-            menu_exit_requested.set(true);
-            frame.close(false);
+            frame.close(true);
         }
         MENU_TREE_NEW_GROUP | MENU_TREE_NEW_ENTRY => {
             let Some(parent_uuid) = context_node_for_menu.get() else {
@@ -1066,7 +1073,6 @@ fn on_wxdragon_init(_app: App) {
     taskbar.set_popup_menu(&mut popup_menu);
 
     // Bind menu event handler to the TaskBarIcon itself (not the frame)
-    let tray_exit_requested = Rc::clone(&exit_requested);
     taskbar.on_menu(move |event| {
         let menu_id = event.get_id();
         match menu_id {
@@ -1085,7 +1091,6 @@ fn on_wxdragon_init(_app: App) {
             }
             MENU_EXIT => {
                 log::info!("Exit clicked");
-                tray_exit_requested.set(true);
                 frame.close(true);
             }
             _ => {
@@ -1094,10 +1099,8 @@ fn on_wxdragon_init(_app: App) {
         }
     });
 
-    let icon = ArtProvider::get_bitmap(ArtId::Help, ArtClient::Menu, Some(Size::new(16, 16)));
-
-    if let Some(icon) = icon {
-        if !taskbar.set_icon(&icon, "mypass") {
+    if let Some(icon) = application_icon.as_ref() {
+        if !taskbar.set_icon(icon, "mypass") {
             log::warn!("Failed to install the mypass tray icon");
         }
     } else {
@@ -1142,7 +1145,6 @@ fn on_wxdragon_init(_app: App) {
         timer_for_destroy.stop();
     });
 
-    let close_exit_requested = Rc::clone(&exit_requested);
     let kpdb_for_close = Rc::clone(&kpdb);
     let settings_for_close = Rc::clone(&settings);
     let tree_pane_for_close = tree_pane;
@@ -1150,18 +1152,10 @@ fn on_wxdragon_init(_app: App) {
     frame.on_close(move |evt| {
         if let wxdragon::WindowEventData::General(event) = &evt
             && event.can_veto()
-            && !close_exit_requested.get()
         {
-            use MessageDialogStyle as MDS;
-            let res = MessageDialog::builder(&frame, "Are you sure you want to close the application?", "Confirm Close")
-                .with_style(MDS::OK | MDS::Cancel | MDS::IconInformation)
-                .build()
-                .show_modal();
-
-            if res != wxdragon::ID_OK {
-                event.veto();
-                return;
-            }
+            event.veto();
+            frame.show(false);
+            return;
         }
         if let Err(error) = save_if_data_changed(frame, &kpdb_for_close) {
             MessageDialog::builder(&frame, &format!("Could not save database: {error}"), "Save failed")
@@ -1183,7 +1177,6 @@ fn on_wxdragon_init(_app: App) {
             settings.show_tree_panel = Some(aui_for_close.is_pane_shown(TREE_PANE_NAME));
             settings.save();
         }
-        close_exit_requested.set(true);
         aui_for_close.uninit();
         if let wxdragon::WindowEventData::General(event) = &evt {
             event.skip(true);

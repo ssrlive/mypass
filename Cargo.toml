@@ -35,7 +35,7 @@ thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["full"] }
 tray-icon = "0.24.2"
 url = "2.5.8"
-wxdragon = { version = "0.9.18", git = "https://github.com/AllenDang/wxDragon.git", rev = "9ff165f", default-features = false, features = [
+wxdragon = { version = "0.9.18", git = "https://github.com/AllenDang/wxDragon.git", rev = "628bdd5", default-features = false, features = [
     "aui",
 ] }
 # wxdragon = { version = "0.9.18", path = "../wxDragon/rust/wxdragon", default-features = false, features = [

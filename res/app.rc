@@ -1,0 +1,40 @@
+// Resource Script (.rc) for executable icon and version information
+
+#include <winres.h>
+
+// 1. Icon resource (The ID is 1, it's the default standard icon for main application)
+1 ICON "main-icon.ico"
+
+// 2. Version Info section
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0" // Language code: America English (0x0409), Charset: Unicode (1200 / 0x04b0)
+        BEGIN
+            VALUE "CompanyName", "My App Company"
+            VALUE "FileDescription", "Keepass manager with wxWidgets"
+            VALUE "FileVersion", "1.0.0.0"
+            VALUE "InternalName", "mypass.exe"
+            VALUE "LegalCopyright", "Copyright (C) 2026. All rights reserved."
+            VALUE "OriginalFilename", "mypass.exe"
+            VALUE "ProductName", "wxKeepass"
+            VALUE "ProductVersion", "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

@@ -14,8 +14,10 @@ pub mod favicon;
 pub mod group_view;
 pub mod icon_cache;
 pub mod keepass;
+pub mod settings;
 
 use keepass::KpDb;
+use settings::{MAX_RECENT_FILES, Settings};
 
 const TREE_PANE_NAME: &str = "architecture-tree";
 const MENU_OPEN: i32 = 2001;
@@ -30,6 +32,8 @@ const MENU_TREE_NEW_GROUP: i32 = 2301;
 const MENU_TREE_NEW_ENTRY: i32 = 2302;
 const MENU_TREE_EDIT: i32 = 2303;
 const MENU_TREE_DELETE: i32 = 2304;
+const MENU_RECENT_FILE_FIRST: i32 = 2410;
+const MENU_RECENT_FILE_LAST: i32 = MENU_RECENT_FILE_FIRST + MAX_RECENT_FILES as i32 - 1;
 
 #[allow(dead_code)]
 struct TrayState {
@@ -47,6 +51,43 @@ fn node_title(node: &NodePtr) -> String {
         .filter(|title| !title.trim().is_empty())
         .unwrap_or("(no title)")
         .to_owned()
+}
+
+fn update_recent_menu(menu_bar: &MenuBar, recent_files: Option<&[String]>) {
+    let Some(file_menu) = menu_bar.get_menu(0) else {
+        return;
+    };
+    let Some(recent_item) = file_menu.find_item_by_position(4) else {
+        return;
+    };
+    let Some(recent_menu) = recent_item.get_sub_menu() else {
+        return;
+    };
+    for id in MENU_RECENT_FILE_FIRST..=MENU_RECENT_FILE_LAST {
+        if recent_menu.find_item(id).is_some() {
+            recent_menu.delete(id);
+        }
+    }
+    let Some(recent_files) = recent_files else {
+        if let Some(item) = recent_menu.append(MENU_RECENT_FILE_FIRST, "No recent files", "", ItemKind::Normal) {
+            item.enable(false);
+        }
+        return;
+    };
+    if recent_files.is_empty() {
+        if let Some(item) = recent_menu.append(MENU_RECENT_FILE_FIRST, "No recent files", "", ItemKind::Normal) {
+            item.enable(false);
+        }
+        return;
+    }
+    for (index, path) in recent_files.iter().enumerate() {
+        recent_menu.append(
+            MENU_RECENT_FILE_FIRST + index as i32,
+            &format!("{}  {}", index + 1, path),
+            path,
+            ItemKind::Normal,
+        );
+    }
 }
 
 fn node_icon_index(tree: &TreeCtrl, node: &NodePtr, kpdb: Option<&KpDb>) -> Option<i32> {
@@ -327,7 +368,18 @@ fn open_database_from_picker(
     let Some(database_path) = database_dialog.get_path() else {
         return Ok(false);
     };
+    open_database_path(frame, kpdb, tree, content, current_view, status_bar, database_path)
+}
 
+fn open_database_path(
+    frame: Frame,
+    kpdb: &Rc<RefCell<Option<KpDb>>>,
+    tree: &TreeCtrl,
+    content: &Panel,
+    current_view: &Rc<RefCell<Option<Panel>>>,
+    status_bar: &StatusBar,
+    database_path: String,
+) -> Result<bool, String> {
     let dialog = Dialog::builder(&frame, "Open KeePass database")
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder | DialogStyle::MaximizeBox)
         .with_size(800, 220)
@@ -481,7 +533,19 @@ async fn main() {
 }
 
 fn on_wxdragon_init(_app: App) {
+    let settings = Rc::new(RefCell::new(Settings::load()));
     let frame = Frame::builder().with_title("mypass").with_size(Size::new(960, 640)).build();
+    let saved_position = settings.borrow().window_position;
+    let saved_size = settings.borrow().window_size;
+    match (saved_position, saved_size) {
+        (Some([x, y]), Some([width, height])) => frame.set_size_with_pos(x, y, width, height),
+        (Some([x, y]), None) => {
+            let size = frame.get_size();
+            frame.set_size_with_pos(x, y, size.width, size.height);
+        }
+        (None, Some([width, height])) => frame.set_size(Size::new(width, height)),
+        (None, None) => {}
+    }
     let status_bar = StatusBar::builder(&frame)
         .with_fields_count(2)
         .with_status_widths(vec![-1, 280])
@@ -502,14 +566,20 @@ fn on_wxdragon_init(_app: App) {
         status_bar.set_status_text(path, 1);
         frame.set_title(&format!("mypass - {path} ({})", database.config.version));
     }
+    if let Some(path) = kpdb.borrow().as_ref().and_then(|db| db.db_path.clone()) {
+        settings.borrow_mut().add_recent_file(path);
+    }
 
+    let recent_menu = Menu::builder().build();
     let file_menu = Menu::builder()
         .append_item(MENU_OPEN, "Open...", "Open a KeePass database")
         .append_item(MENU_SAVE, "Save", "Save the current database")
         .append_item(MENU_CLOSE, "Close", "Close the current database")
-        .append_separator()
-        .append_item(MENU_EXIT, "Exit", "Exit mypass")
         .build();
+    file_menu.append_separator();
+    file_menu.append_submenu(recent_menu, "Recent files", "Open a recently used KeePass database");
+    file_menu.append_separator();
+    file_menu.append(MENU_EXIT, "Exit", "Exit mypass", ItemKind::Normal);
     let view_menu = Menu::builder()
         .append_check_item(MENU_TOGGLE_TREE, "Architecture tree", "Show or hide the architecture tree")
         .build();
@@ -522,6 +592,9 @@ fn on_wxdragon_init(_app: App) {
         .append(help_menu, "Help")
         .build();
     frame.set_menu_bar(menu_bar);
+    if let Some(menu_bar) = frame.get_menu_bar() {
+        update_recent_menu(&menu_bar, settings.borrow().recent_files.as_deref());
+    }
 
     let content = Panel::builder(&frame).build();
     let initial_view = Panel::builder(&content).build();
@@ -547,13 +620,14 @@ fn on_wxdragon_init(_app: App) {
     let exit_requested = Rc::new(Cell::new(false));
 
     let aui = AuiManager::builder(&frame).build();
+    let tree_width = settings.borrow().tree_width.unwrap_or(300);
     aui.add_pane_with_info(
         &tree_pane,
         AuiPaneInfo::new()
             .with_name(TREE_PANE_NAME)
             .with_caption("Architecture tree")
             .left()
-            .best_size(300, 600)
+            .best_size(tree_width, 600)
             .close_button(true)
             .floatable(true)
             .dockable(true),
@@ -563,6 +637,10 @@ fn on_wxdragon_init(_app: App) {
         AuiPaneInfo::new().with_name("details").with_caption("Details").center_pane(),
     );
     aui.update();
+    let show_tree_panel = settings.borrow().show_tree_panel.unwrap_or(true);
+    if aui.set_pane_shown(TREE_PANE_NAME, show_tree_panel) {
+        aui.update();
+    }
 
     let kpdb_for_selection = Rc::clone(&kpdb);
     let current_view_for_selection = Rc::clone(&current_view);
@@ -719,6 +797,7 @@ fn on_wxdragon_init(_app: App) {
     let content_for_menu = content;
     let current_view_for_menu = Rc::clone(&current_view);
     let context_node_for_menu = Rc::clone(&context_node);
+    let settings_for_menu = Rc::clone(&settings);
     frame.on_menu(move |event| match event.get_id() {
         MENU_OPEN => match open_database_from_picker(
             frame,
@@ -729,7 +808,16 @@ fn on_wxdragon_init(_app: App) {
             &status_bar,
         ) {
             Ok(false) => status_bar.set_status_text("Open cancelled", 0),
-            Ok(true) => {}
+            Ok(true) => {
+                if let Some(path) = kpdb_for_menu.borrow().as_ref().and_then(|db| db.db_path.clone()) {
+                    let mut settings = settings_for_menu.borrow_mut();
+                    settings.add_recent_file(path);
+                    settings.save();
+                    if let Some(menu_bar) = frame.get_menu_bar() {
+                        update_recent_menu(&menu_bar, settings.recent_files.as_deref());
+                    }
+                }
+            }
             Err(error) => {
                 MessageDialog::builder(&frame, &error, "Open failed")
                     .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
@@ -738,6 +826,38 @@ fn on_wxdragon_init(_app: App) {
                 status_bar.set_status_text("Could not open database", 0);
             }
         },
+        id @ MENU_RECENT_FILE_FIRST..=MENU_RECENT_FILE_LAST => {
+            let index = (id - MENU_RECENT_FILE_FIRST) as usize;
+            let Some(path) = settings_for_menu
+                .borrow()
+                .recent_files
+                .as_ref()
+                .and_then(|recent_files| recent_files.get(index))
+                .cloned()
+            else {
+                return;
+            };
+            match open_database_path(
+                frame,
+                &kpdb_for_menu,
+                &tree_for_menu,
+                &content_for_menu,
+                &current_view_for_menu,
+                &status_bar,
+                path.clone(),
+            ) {
+                Ok(true) => {
+                    let mut settings = settings_for_menu.borrow_mut();
+                    settings.add_recent_file(path);
+                    settings.save();
+                    if let Some(menu_bar) = frame.get_menu_bar() {
+                        update_recent_menu(&menu_bar, settings.recent_files.as_deref());
+                    }
+                }
+                Ok(false) => status_bar.set_status_text("Open cancelled", 0),
+                Err(error) => status_bar.set_status_text(&format!("Open failed: {error}"), 0),
+            }
+        }
         MENU_SAVE => match save_if_data_changed(frame, &kpdb_for_menu) {
             Ok(()) => status_bar.set_status_text("Database saved", 0),
             Err(error) => status_bar.set_status_text(&format!("Save failed: {error}"), 0),
@@ -991,7 +1111,9 @@ fn on_wxdragon_init(_app: App) {
     });
 
     frame.show(true);
-    frame.centre();
+    if settings.borrow().window_position.is_none() {
+        frame.centre();
+    }
 
     let icon_warmup_timer = Rc::new(Timer::new(&frame));
     let icon_warmup_index = Rc::new(Cell::new(0usize));
@@ -1021,6 +1143,8 @@ fn on_wxdragon_init(_app: App) {
 
     let close_exit_requested = Rc::clone(&exit_requested);
     let kpdb_for_close = Rc::clone(&kpdb);
+    let settings_for_close = Rc::clone(&settings);
+    let tree_pane_for_close = tree_pane;
     let aui_for_close = aui;
     frame.on_close(move |evt| {
         if let wxdragon::WindowEventData::General(event) = &evt
@@ -1047,6 +1171,16 @@ fn on_wxdragon_init(_app: App) {
                 event.veto();
             }
             return;
+        }
+        {
+            let mut settings = settings_for_close.borrow_mut();
+            let position = frame.get_position();
+            let size = frame.get_size();
+            settings.window_position = Some([position.x, position.y]);
+            settings.window_size = Some([size.width, size.height]);
+            settings.tree_width = Some(tree_pane_for_close.get_size().width);
+            settings.show_tree_panel = Some(aui_for_close.is_pane_shown(TREE_PANE_NAME));
+            settings.save();
         }
         close_exit_requested.set(true);
         aui_for_close.uninit();

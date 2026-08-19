@@ -1,19 +1,20 @@
 use crate::{
-    entry_view::{bitmap_for_icon, bitmap_for_icon_fixed},
+    entry_view::{bitmap_for_icon, bitmap_for_icon_fixed, set_icon_button_bitmap},
     find_tree_item,
     icon_cache::icon_for_emoji,
+    icon_picker::show_icon_picker,
     keepass::KpDb,
     node_title, show_node_view,
 };
 use keepass_ng::{
     Uuid,
-    db::{Entry, Group, Icon, IconId, Node, NodePtr, group_get_children, node_is_group, with_node, with_node_mut},
+    db::{Entry, Group, Icon, Node, NodePtr, group_get_children, node_is_group, with_node, with_node_mut},
 };
 use std::{cell::RefCell, rc::Rc};
 use wxdragon::{
     BoxSizer, Button, ButtonEvents, CheckBox, FlexGridSizer, Frame, HasItemData, ImageList, ListColumnFormat, ListCtrl, ListCtrlStyle,
-    Notebook, Orientation, Panel, ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, StatusBar, TextCtrl,
-    TextCtrlStyle, TreeCtrl, WxWidget, image_list_type,
+    Notebook, Orientation, Panel, Size, SizerFlag, StaticBitmap, StaticText, StatusBar, TextCtrl, TextCtrlStyle, TreeCtrl, WxWidget,
+    image_list_type,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -201,6 +202,9 @@ pub(crate) fn show_group_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<
     let group_grid = FlexGridSizer::builder(0, 2).with_vgap(8).with_hgap(12).build();
     group_grid.add_growable_col(1, 1);
     let name = TextCtrl::builder(&group_page).with_value(group.get_title().unwrap_or("")).build();
+    let title_icon_button = Button::builder(&group_page).with_size(Size::new(38, 34)).build();
+    set_icon_button_bitmap(&title_icon_button, &group.get_icon(), &kpdb);
+    title_icon_button.set_tooltip("Choose icon");
     let notes = TextCtrl::builder(&group_page)
         .with_value(group.get_notes().unwrap_or(""))
         .with_style(TextCtrlStyle::MultiLine)
@@ -220,8 +224,11 @@ pub(crate) fn show_group_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<
         .with_value(true)
         .build();
     autotype_inheritance.enable(false);
+    let title_controls = BoxSizer::builder(Orientation::Horizontal).build();
+    title_controls.add(&name, 1, SizerFlag::All | SizerFlag::Expand, 0);
+    title_controls.add(&title_icon_button, 0, SizerFlag::All, 4);
     group_grid.add(&StaticText::builder(&group_page).with_label("Name").build(), 0, SizerFlag::All, 4);
-    group_grid.add(&name, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    group_grid.add_sizer(&title_controls, 1, SizerFlag::All | SizerFlag::Expand, 4);
     group_grid.add(&StaticText::builder(&group_page).with_label("Notes").build(), 0, SizerFlag::All, 4);
     group_grid.add(&notes, 1, SizerFlag::All | SizerFlag::Expand, 4);
     group_grid.add(
@@ -251,120 +258,16 @@ pub(crate) fn show_group_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<
     );
     group_page.set_sizer(group_sizer, true);
 
-    let icon_page = Panel::builder(&notebook).build();
-    let icon_sizer = BoxSizer::builder(Orientation::Vertical).build();
     let selected_icon = Rc::new(std::cell::Cell::new(group.get_icon()));
-    let icon_buttons = Rc::new(RefCell::new(Vec::<(Button, Icon)>::new()));
-    let selected_label = StaticText::builder(&icon_page).with_label("").build();
-    let selected_background = wxdragon::Colour::rgb(198, 224, 180);
-    let default_background = wxdragon::Colour::rgb(255, 255, 255);
-    icon_sizer.add(
-        &StaticText::builder(&icon_page).with_label("Built-in icons").build(),
-        0,
-        SizerFlag::All,
-        4,
-    );
-    let built_in_sizer = BoxSizer::builder(Orientation::Vertical).build();
-    const ICONS_PER_ROW: usize = 15;
-    for row_start in (0..IconId::count()).step_by(ICONS_PER_ROW) {
-        let row = BoxSizer::builder(Orientation::Horizontal).build();
-        for icon_number in row_start..(row_start + ICONS_PER_ROW).min(IconId::count()) {
-            let icon_number: IconId = icon_number.try_into().unwrap_or(IconId::KEY);
-            let button = Button::builder(&icon_page).with_size(Size::new(36, 36)).build();
-            if let Some(bitmap) = icon_for_emoji(&icon_number.to_string(), 28) {
-                button.set_bitmap_label(&bitmap);
-            }
-            let icon = Icon::BuiltIn(icon_number);
-            let buttons_for_click = Rc::clone(&icon_buttons);
-            let selected_for_click = Rc::clone(&selected_icon);
-            let label_for_click = selected_label;
-            button.on_click(move |_| {
-                selected_for_click.set(icon);
-                for (candidate, candidate_icon) in buttons_for_click.borrow().iter() {
-                    candidate.set_background_color(if *candidate_icon == icon {
-                        selected_background
-                    } else {
-                        default_background
-                    });
-                }
-                label_for_click.set_label(&format!("Selected built-in icon {icon_number}"));
-            });
-            icon_buttons.borrow_mut().push((button, icon));
-            row.add(&button, 0, SizerFlag::All, 2);
+    let title_icon_button_for_picker = title_icon_button;
+    let selected_icon_for_picker = Rc::clone(&selected_icon);
+    let kpdb_for_picker = Rc::clone(&kpdb);
+    title_icon_button.on_click(move |_| {
+        if let Some(icon) = show_icon_picker(&dialog, Rc::clone(&kpdb_for_picker), selected_icon_for_picker.get()) {
+            selected_icon_for_picker.set(icon);
+            set_icon_button_bitmap(&title_icon_button_for_picker, &icon, &kpdb_for_picker);
         }
-        built_in_sizer.add_sizer(&row, 0, SizerFlag::All, 0);
-    }
-    icon_sizer.add_sizer(&built_in_sizer, 0, SizerFlag::All, 4);
-    icon_sizer.add(
-        &StaticText::builder(&icon_page).with_label("Custom icons in this database").build(),
-        0,
-        SizerFlag::All,
-        4,
-    );
-    let custom_scroll = ScrolledWindow::builder(&icon_page).with_style(ScrolledWindowStyle::VScroll).build();
-    custom_scroll.set_scroll_rate(0, 20);
-    custom_scroll.enable_scrolling(false, true);
-    let custom_sizer = BoxSizer::builder(Orientation::Vertical).build();
-    let mut custom_rows = Vec::<BoxSizer>::new();
-    const CUSTOM_ICONS_PER_ROW: usize = 15;
-    let custom_icons = kpdb
-        .borrow()
-        .as_ref()
-        .and_then(|db| db.db.as_ref())
-        .map(|db| {
-            db.meta
-                .custom_icons()
-                .map(|(uuid, icon)| (*uuid, icon.data.clone(), icon.name().unwrap_or("Custom icon").to_owned()))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    for (index, (uuid, data, icon_name)) in custom_icons.into_iter().enumerate() {
-        let button = Button::builder(&custom_scroll).with_size(Size::new(42, 36)).build();
-        if let Some(bitmap) = bitmap_for_icon(&data, 28) {
-            button.set_bitmap_label(&bitmap);
-        }
-        button.set_tooltip(&icon_name);
-        let icon = Icon::Custom(uuid);
-        let buttons_for_click = Rc::clone(&icon_buttons);
-        let selected_for_click = Rc::clone(&selected_icon);
-        let label_for_click = selected_label;
-        button.on_click(move |_| {
-            selected_for_click.set(icon);
-            for (candidate, candidate_icon) in buttons_for_click.borrow().iter() {
-                candidate.set_background_color(if *candidate_icon == icon {
-                    selected_background
-                } else {
-                    default_background
-                });
-            }
-            label_for_click.set_label(&format!("Selected custom icon {uuid}"));
-        });
-        icon_buttons.borrow_mut().push((button, icon));
-        let row_index = index / CUSTOM_ICONS_PER_ROW;
-        let row = if let Some(row) = custom_rows.get(row_index).copied() {
-            row
-        } else {
-            let row = BoxSizer::builder(Orientation::Horizontal).build();
-            custom_sizer.add_sizer(&row, 0, SizerFlag::All, 0);
-            custom_rows.push(row);
-            row
-        };
-        row.add(&button, 0, SizerFlag::All, 2);
-    }
-    custom_scroll.set_sizer(custom_sizer, true);
-    icon_sizer.add(&custom_scroll, 1, SizerFlag::All | SizerFlag::Expand, 4);
-    icon_sizer.add(&selected_label, 0, SizerFlag::All, 4);
-    icon_page.set_sizer(icon_sizer, true);
-    let current_icon = selected_icon.get();
-    for (button, icon) in icon_buttons.borrow().iter() {
-        button.set_background_color(if *icon == current_icon {
-            selected_background
-        } else {
-            default_background
-        });
-    }
-    selected_label.set_label(&format!("Selected icon {current_icon:?}"));
-
+    });
     let properties_page = Panel::builder(&notebook).build();
     let properties_sizer = BoxSizer::builder(Orientation::Vertical).build();
     let properties_grid = FlexGridSizer::builder(0, 2).with_vgap(8).with_hgap(12).build();
@@ -411,7 +314,6 @@ pub(crate) fn show_group_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<
     properties_page.set_sizer(properties_sizer, true);
 
     notebook.add_page(&group_page, "Group", true, None);
-    notebook.add_page(&icon_page, "Icon", false, None);
     notebook.add_page(&properties_page, "Properties", false, None);
     dialog_sizer.add(&notebook, 1, SizerFlag::All | SizerFlag::Expand, 8);
     let button_sizer = BoxSizer::builder(Orientation::Horizontal).build();

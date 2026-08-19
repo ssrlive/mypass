@@ -1,9 +1,10 @@
 use crate::add_detail_row;
 use crate::favicon::{FaviconDownloader, image_from_bytes};
 use crate::icon_cache::icon_for_emoji;
+use crate::icon_picker::show_icon_picker;
 use crate::keepass::KpDb;
 use chrono::{Datelike, Duration, Local, Months, NaiveDate, NaiveDateTime, Timelike};
-use keepass_ng::db::{AutoType, Entry, Icon, IconId, Node, NodePtr, with_node, with_node_mut};
+use keepass_ng::db::{AutoType, Entry, Icon, Node, NodePtr, with_node, with_node_mut};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -11,9 +12,8 @@ use std::{
 };
 use wxdragon::{
     Bitmap, BoxSizer, Button, ButtonEvents, CheckBox, Choice, DatePickerCtrl, DatePickerCtrlStyle, Dialog, FlexGridSizer, Frame,
-    HyperlinkCtrl, ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog, MessageDialogStyle, Notebook, Orientation, Panel,
-    ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticBitmap, StaticText, TextCtrl, TextCtrlStyle, TimePickerCtrl, Timer,
-    WindowEvents, WxWidget,
+    HyperlinkCtrl, ListColumnFormat, ListCtrl, ListCtrlStyle, MessageDialog, MessageDialogStyle, Notebook, Orientation, Panel, Size,
+    SizerFlag, StaticBitmap, StaticText, TextCtrl, TextCtrlStyle, TimePickerCtrl, Timer, WindowEvents, WxWidget,
 };
 
 pub fn build_entry_view(parent: &Panel, frame: Frame, node: &NodePtr, refresh: Rc<dyn Fn()>, kpdb: Rc<RefCell<Option<KpDb>>>) {
@@ -251,6 +251,9 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
     let entry_grid = FlexGridSizer::builder(0, 2).with_vgap(8).with_hgap(12).build();
     entry_grid.add_growable_col(1, 1);
     let title = TextCtrl::builder(&entry_page).with_value(entry.get_title().unwrap_or("")).build();
+    let title_icon_button = Button::builder(&entry_page).with_size(Size::new(38, 34)).build();
+    set_icon_button_bitmap(&title_icon_button, &entry.get_icon(), &kpdb);
+    title_icon_button.set_tooltip("Choose icon");
     let username = TextCtrl::builder(&entry_page)
         .with_value(entry.get_username().unwrap_or(""))
         .build();
@@ -378,11 +381,18 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
         .with_style(TextCtrlStyle::MultiLine)
         .with_size(Size::new(-1, 150))
         .build();
-    for (label, control) in [("Title", &title), ("Username", &username)] {
-        let label = StaticText::builder(&entry_page).with_label(label).build();
-        entry_grid.add(&label, 0, SizerFlag::All, 4);
-        entry_grid.add(control, 1, SizerFlag::All | SizerFlag::Expand, 4);
-    }
+    let title_controls = BoxSizer::builder(Orientation::Horizontal).build();
+    title_controls.add(&title, 1, SizerFlag::All | SizerFlag::Expand, 0);
+    title_controls.add(&title_icon_button, 0, SizerFlag::All, 4);
+    entry_grid.add(&StaticText::builder(&entry_page).with_label("Title").build(), 0, SizerFlag::All, 4);
+    entry_grid.add_sizer(&title_controls, 1, SizerFlag::All | SizerFlag::Expand, 4);
+    entry_grid.add(
+        &StaticText::builder(&entry_page).with_label("Username").build(),
+        0,
+        SizerFlag::All,
+        4,
+    );
+    entry_grid.add(&username, 1, SizerFlag::All | SizerFlag::Expand, 4);
     let password_label = StaticText::builder(&entry_page).with_label("Password").build();
     entry_grid.add(&password_label, 0, SizerFlag::All, 4);
     entry_grid.add(&password_panel, 1, SizerFlag::All | SizerFlag::Expand, 4);
@@ -450,142 +460,27 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
     advanced_sizer.add(&attachments, 1, SizerFlag::All | SizerFlag::Expand, 4);
     advanced_page.set_sizer(advanced_sizer, true);
 
-    let icon_page = Panel::builder(&notebook).build();
-    let icon_sizer = BoxSizer::builder(Orientation::Vertical).build();
     let selected_icon = Rc::new(Cell::new(entry.get_icon()));
-    let selected_icon_label = StaticText::builder(&icon_page).with_label("Selected icon").build();
-    let icon_buttons = Rc::new(RefCell::new(Vec::<(Button, Icon)>::new()));
-    let selected_background = wxdragon::Colour::rgb(198, 224, 180);
-    let default_background = wxdragon::Colour::rgb(255, 255, 255);
-
-    icon_sizer.add(
-        &StaticText::builder(&icon_page).with_label("Built-in icons").build(),
-        0,
-        SizerFlag::All,
-        4,
-    );
-    let built_in_sizer = BoxSizer::builder(Orientation::Vertical).build();
-    const ICONS_PER_ROW: usize = 15;
-    for row_start in (0..IconId::count()).step_by(ICONS_PER_ROW) {
-        let row = BoxSizer::builder(Orientation::Horizontal).build();
-        for icon_number in row_start..(row_start + ICONS_PER_ROW).min(IconId::count()) {
-            let icon_number: IconId = icon_number.try_into().unwrap_or(IconId::KEY);
-            let button = Button::builder(&icon_page).with_size(Size::new(36, 36)).build();
-            if let Some(bitmap) = icon_for_emoji(&icon_number.to_string(), 28) {
-                button.set_bitmap_label(&bitmap);
-            }
-            button.set_tooltip(&format!("Built-in icon {icon_number}"));
-            let icon = Icon::BuiltIn(icon_number);
-            let icon_buttons_for_button = Rc::clone(&icon_buttons);
-            let selected_icon_for_button = Rc::clone(&selected_icon);
-            let selected_label_for_button = selected_icon_label;
-            button.on_click(move |_| {
-                selected_icon_for_button.set(icon);
-                for (candidate, candidate_icon) in icon_buttons_for_button.borrow().iter() {
-                    candidate.set_background_color(if *candidate_icon == icon {
-                        selected_background
-                    } else {
-                        default_background
-                    });
-                }
-                selected_label_for_button.set_label(&format!("Selected built-in icon {icon_number}"));
-            });
-            icon_buttons.borrow_mut().push((button, icon));
-            row.add(&button, 0, SizerFlag::All, 2);
+    let title_icon_button_for_picker = title_icon_button;
+    let selected_icon_for_picker = Rc::clone(&selected_icon);
+    let kpdb_for_picker = Rc::clone(&kpdb);
+    title_icon_button.on_click(move |_| {
+        if let Some(icon) = show_icon_picker(&dialog, Rc::clone(&kpdb_for_picker), selected_icon_for_picker.get()) {
+            selected_icon_for_picker.set(icon);
+            set_icon_button_bitmap(&title_icon_button_for_picker, &icon, &kpdb_for_picker);
         }
-        built_in_sizer.add_sizer(&row, 0, SizerFlag::All, 0);
-    }
-    icon_sizer.add_sizer(&built_in_sizer, 0, SizerFlag::All, 4);
-
-    icon_sizer.add(
-        &StaticText::builder(&icon_page).with_label("Custom icons in this database").build(),
-        0,
-        SizerFlag::All,
-        4,
-    );
-    let custom_icon_scroll = ScrolledWindow::builder(&icon_page).with_style(ScrolledWindowStyle::VScroll).build();
-    custom_icon_scroll.set_scroll_rate(0, 20);
-    custom_icon_scroll.enable_scrolling(false, true);
-    let custom_icon_sizer = BoxSizer::builder(Orientation::Vertical).build();
-    let custom_icon_sizer_for_buttons = custom_icon_sizer;
-    let custom_icon_rows = Rc::new(RefCell::new(Vec::<BoxSizer>::new()));
-    let custom_icon_count = Rc::new(Cell::new(0usize));
-    let icon_buttons_for_custom_icons = Rc::clone(&icon_buttons);
-    let selected_icon_for_custom_icons = Rc::clone(&selected_icon);
-    let add_custom_icon_button = move |uuid, data: &[u8], name: Option<&str>| {
-        let button = Button::builder(&custom_icon_scroll).with_size(Size::new(42, 36)).build();
-        if let Some(bitmap) = bitmap_for_icon(data, 28) {
-            button.set_bitmap_label(&bitmap);
-        }
-        let tooltip = name.unwrap_or("Custom icon").to_owned();
-        button.set_tooltip(&tooltip);
-        let icon = Icon::Custom(uuid);
-        let icon_buttons_for_button = Rc::clone(&icon_buttons_for_custom_icons);
-        let selected_icon_for_button = Rc::clone(&selected_icon_for_custom_icons);
-        let selected_label_for_button = selected_icon_label;
-        button.on_click(move |_| {
-            selected_icon_for_button.set(icon);
-            for (candidate, candidate_icon) in icon_buttons_for_button.borrow().iter() {
-                candidate.set_background_color(if *candidate_icon == icon {
-                    selected_background
-                } else {
-                    default_background
-                });
-            }
-            selected_label_for_button.set_label(&format!("Selected custom icon {uuid}"));
-        });
-        icon_buttons_for_custom_icons.borrow_mut().push((button, icon));
-        let icon_index = custom_icon_count.get();
-        let row_index = icon_index / ICONS_PER_ROW;
-        let row = if let Some(row) = custom_icon_rows.borrow().get(row_index).copied() {
-            row
-        } else {
-            let row = BoxSizer::builder(Orientation::Horizontal).build();
-            custom_icon_sizer_for_buttons.add_sizer(&row, 0, SizerFlag::All, 0);
-            custom_icon_rows.borrow_mut().push(row);
-            row
-        };
-        row.add(&button, 0, SizerFlag::All, 2);
-        custom_icon_count.set(icon_index + 1);
-    };
-    if let Some(db) = kpdb.borrow().as_ref().and_then(|db| db.db.as_ref()) {
-        for (uuid, icon) in db.meta.custom_icons() {
-            add_custom_icon_button(*uuid, &icon.data, icon.name());
-        }
-    }
-    custom_icon_scroll.set_sizer(custom_icon_sizer, true);
-    icon_sizer.add(&custom_icon_scroll, 1, SizerFlag::All | SizerFlag::Expand, 4);
-    icon_sizer.add(&selected_icon_label, 0, SizerFlag::All, 4);
-    icon_page.set_sizer(icon_sizer, true);
-
-    let current_icon = selected_icon.get();
-    for (button, icon) in icon_buttons.borrow().iter() {
-        button.set_background_color(if *icon == current_icon {
-            selected_background
-        } else {
-            default_background
-        });
-    }
-    match current_icon {
-        Icon::BuiltIn(icon_id) => selected_icon_label.set_label(&format!("Selected built-in icon {icon_id}")),
-        Icon::Custom(uuid) => selected_icon_label.set_label(&format!("Selected custom icon {uuid}")),
-    }
-
+    });
     let url_for_download = url;
     #[allow(clippy::type_complexity)]
     let download_result: Arc<Mutex<Option<Result<(Vec<u8>, String), String>>>> = Arc::new(Mutex::new(None));
-    let download_timer = Rc::new(Timer::new(&icon_page));
+    let download_timer = Rc::new(Timer::new(&entry_page));
     let download_timer_for_tick = Rc::clone(&download_timer);
     let download_timer_to_stop = Rc::clone(&download_timer);
     let download_result_for_tick = Arc::clone(&download_result);
     let download_button_for_tick = download_favicon;
-    let parent_for_download = icon_page;
+    let parent_for_download = entry_page;
     let kpdb_for_download = Rc::clone(&kpdb);
     let selected_icon_for_download = Rc::clone(&selected_icon);
-    let selected_label_for_download = selected_icon_label;
-    let icon_buttons_for_download = Rc::clone(&icon_buttons);
-    let custom_icon_scroll_for_download = custom_icon_scroll;
-    let add_custom_icon_button_for_download = add_custom_icon_button;
     download_timer_for_tick.on_tick(move |_| {
         let Some(result) = download_result_for_tick.lock().unwrap().take() else {
             return;
@@ -605,30 +500,8 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
                         .show_modal();
                     return;
                 };
-                if let Some(db) = kpdb_for_download.borrow().as_ref().and_then(|db| db.db.as_ref())
-                    && let Some(icon) = db.meta.custom_icon(uuid)
-                {
-                    let already_added = icon_buttons_for_download
-                        .borrow()
-                        .iter()
-                        .any(|(_, icon)| *icon == Icon::Custom(uuid));
-                    if !already_added {
-                        let data = icon.data.clone();
-                        let name = icon.name().map(str::to_owned);
-                        add_custom_icon_button_for_download(uuid, &data, name.as_deref());
-                    }
-                    custom_icon_scroll_for_download.layout();
-                    parent_for_download.layout();
-                }
                 selected_icon_for_download.set(Icon::Custom(uuid));
-                selected_label_for_download.set_label(&format!("Selected custom icon {uuid}"));
-                for (button, icon) in icon_buttons_for_download.borrow().iter() {
-                    button.set_background_color(if *icon == Icon::Custom(uuid) {
-                        selected_background
-                    } else {
-                        default_background
-                    });
-                }
+                set_icon_button_bitmap(&title_icon_button, &Icon::Custom(uuid), &kpdb_for_download);
             }
             Err(error) => {
                 MessageDialog::builder(&parent_for_download, &error, "Download favicon")
@@ -639,7 +512,7 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
         }
     });
     let download_timer_for_destroy = Rc::clone(&download_timer);
-    icon_page.on_destroy(move |_| download_timer_for_destroy.stop());
+    entry_page.on_destroy(move |_| download_timer_for_destroy.stop());
     let download_timer_for_click = Rc::clone(&download_timer);
     let download_result_for_worker = Arc::clone(&download_result);
     download_favicon.on_click(move |_| {
@@ -735,7 +608,6 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
 
     notebook.add_page(&entry_page, "Entry", true, None);
     notebook.add_page(&advanced_page, "Advanced", false, None);
-    notebook.add_page(&icon_page, "Icon", false, None);
     notebook.add_page(&autotype_page, "Auto-Type", false, None);
     notebook.add_page(&properties_page, "Properties", false, None);
     dialog_sizer.add(&notebook, 1, SizerFlag::All | SizerFlag::Expand, 8);
@@ -843,6 +715,21 @@ pub(crate) fn bitmap_for_icon_fixed(data: &[u8], size: u32) -> Option<Bitmap> {
         .resize_exact(size, size, image::imageops::FilterType::Lanczos3);
     let rgba = image.to_rgba8();
     Bitmap::from_rgba(rgba.as_raw(), rgba.width(), rgba.height())
+}
+
+pub(crate) fn set_icon_button_bitmap(button: &Button, icon: &Icon, kpdb: &Rc<RefCell<Option<KpDb>>>) {
+    let bitmap = match icon {
+        Icon::BuiltIn(icon_id) => icon_for_emoji(&icon_id.to_string(), 20),
+        Icon::Custom(uuid) => kpdb
+            .borrow()
+            .as_ref()
+            .and_then(|db| db.db.as_ref())
+            .and_then(|db| db.meta.custom_icon(*uuid))
+            .and_then(|icon| bitmap_for_icon(&icon.data, 20)),
+    };
+    if let Some(bitmap) = bitmap {
+        button.set_bitmap_label(&bitmap);
+    }
 }
 
 fn datetime_to_wx(time: NaiveDateTime) -> wxdragon::DateTime {

@@ -13,6 +13,7 @@ pub mod error;
 pub mod favicon;
 pub mod group_view;
 pub mod icon_cache;
+pub mod icon_picker;
 pub mod keepass;
 pub mod settings;
 

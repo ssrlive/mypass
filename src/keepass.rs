@@ -167,6 +167,29 @@ impl KpDb {
         self.mark_data_changed();
         Ok(uuid)
     }
+
+    pub fn remove_custom_icon(&mut self, uuid: Uuid) -> Result<bool> {
+        let db = self.db.as_mut().ok_or("No database")?;
+        let removed = db.meta.remove_custom_icon(uuid).is_some();
+        if removed {
+            self.mark_data_changed();
+        }
+        Ok(removed)
+    }
+
+    pub fn custom_icon_is_used(&self, uuid: Uuid) -> Result<bool> {
+        let db = self.db.as_ref().ok_or("No database")?;
+        Ok(db.custom_icon_is_used(uuid))
+    }
+
+    pub fn purge_unused_custom_icons(&mut self) -> Result<usize> {
+        let db = self.db.as_mut().ok_or("No database")?;
+        let removed = db.purge_unused_custom_icons();
+        if removed > 0 {
+            self.mark_data_changed();
+        }
+        Ok(removed)
+    }
 }
 
 #[test]

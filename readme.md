@@ -3,8 +3,6 @@
 `Mypass` is a simple password manager written in [Rust](https://www.rust-lang.org/).
 It's a GUI application that uses [wxDragon](https://crates.io/crates/wxdragon) and [keepass-ng](https://crates.io/crates/keepass-ng).
 
-`Mypass` is a work in progress. It's not ready for daily use yet.
-
 ## Building
 
 ### Prerequisites

@@ -81,45 +81,27 @@ pub fn build_entry_view(parent: &Panel, frame: Frame, node: &NodePtr, refresh: R
     let password_value = TextCtrl::builder(&password_panel)
         .with_value(&password)
         .with_style(TextCtrlStyle::Password | TextCtrlStyle::ReadOnly)
-        .with_size(Size::new(240, 34))
+        .with_size(Size::new(240, 38))
         .build();
-    let password_visible_value = TextCtrl::builder(&password_panel)
-        .with_value(&password)
-        .with_style(TextCtrlStyle::ReadOnly)
-        .with_size(Size::new(240, 34))
-        .build();
-    password_visible_value.show(false);
-    let password_toggle = Button::builder(&password_panel).with_size(Size::new(38, 34)).build();
-    if let Some(bitmap) = icon_for_emoji("👁", 20) {
+    let password_toggle = Button::builder(&password_panel).with_size(Size::new(38, 38)).build();
+    if let Some(bitmap) = icon_for_emoji("👁", 28) {
         password_toggle.set_bitmap_label(&bitmap);
     }
     password_toggle.set_tooltip("Show or hide password");
-    let password_visible = Rc::new(Cell::new(false));
-    let password_visible_for_toggle = Rc::clone(&password_visible);
-    let password_value_for_toggle = password_value;
-    let password_visible_value_for_toggle = password_visible_value;
-    let password_panel_for_toggle = password_panel;
     password_toggle.on_click(move |_| {
-        let visible = !password_visible_for_toggle.get();
-        password_visible_for_toggle.set(visible);
-        if visible {
-            password_visible_value_for_toggle.set_value(&password_value_for_toggle.get_value());
-            password_value_for_toggle.show(false);
-            password_visible_value_for_toggle.show(true);
-        } else {
-            password_value_for_toggle.set_value(&password_visible_value_for_toggle.get_value());
-            password_visible_value_for_toggle.show(false);
-            password_value_for_toggle.show(true);
+        let password_mode = !password_value.is_password_mode();
+        password_value.set_password_mode(password_mode);
+        let label = if password_mode { "👁" } else { "🙈" };
+        if let Some(bitmap) = icon_for_emoji(label, 28) {
+            password_toggle.set_bitmap_label(&bitmap);
         }
-        password_panel_for_toggle.layout();
     });
     let password_controls = BoxSizer::builder(Orientation::Horizontal).build();
     password_controls.add(&password_value, 1, SizerFlag::All | SizerFlag::Expand, 0);
-    password_controls.add(&password_visible_value, 1, SizerFlag::All | SizerFlag::Expand, 0);
     password_controls.add(&password_toggle, 0, SizerFlag::All, 4);
     password_panel.set_sizer(password_controls, true);
     general_grid.add(&password_label, 0, SizerFlag::All | SizerFlag::AlignCenterVertical, 4);
-    password_panel.set_min_size(Size::new(282, 34));
+    password_panel.set_min_size(Size::new(282, 38));
     general_grid.add(&password_panel, 1, SizerFlag::All, 4);
     let url_label = StaticText::builder(&general_page).with_label("URL").build();
     general_grid.add(&url_label, 0, SizerFlag::All | SizerFlag::AlignCenterVertical, 4);
@@ -258,40 +240,25 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
         .with_value(entry.get_username().unwrap_or(""))
         .build();
     let password_panel = Panel::builder(&entry_page).build();
-    let password_value = entry.get_password().unwrap_or("").to_owned();
     let password = TextCtrl::builder(&password_panel)
         .with_value(entry.get_password().unwrap_or(""))
         .with_style(TextCtrlStyle::Password)
         .build();
-    let password_visible = TextCtrl::builder(&password_panel).with_value(&password_value).build();
-    password_visible.show(false);
-    let password_toggle = Button::builder(&password_panel).with_size(Size::new(38, 34)).build();
-    if let Some(bitmap) = icon_for_emoji("👁", 20) {
+    let password_toggle = Button::builder(&password_panel).with_size(Size::new(38, 38)).build();
+    if let Some(bitmap) = icon_for_emoji("👁", 28) {
         password_toggle.set_bitmap_label(&bitmap);
     }
     password_toggle.set_tooltip("Show or hide password");
-    let password_for_toggle = password;
-    let password_visible_for_toggle = password_visible;
-    let password_panel_for_toggle = password_panel;
-    let password_is_visible = Rc::new(Cell::new(false));
-    let password_is_visible_for_toggle = Rc::clone(&password_is_visible);
     password_toggle.on_click(move |_| {
-        let is_visible = !password_is_visible_for_toggle.get();
-        if is_visible {
-            password_visible_for_toggle.set_value(&password_for_toggle.get_value());
-            password_for_toggle.show(false);
-            password_visible_for_toggle.show(true);
-        } else {
-            password_for_toggle.set_value(&password_visible_for_toggle.get_value());
-            password_visible_for_toggle.show(false);
-            password_for_toggle.show(true);
+        let password_mode = !password.is_password_mode();
+        password.set_password_mode(password_mode);
+        let label = if password_mode { "👁" } else { "🙈" };
+        if let Some(bitmap) = icon_for_emoji(label, 28) {
+            password_toggle.set_bitmap_label(&bitmap);
         }
-        password_panel_for_toggle.layout();
-        password_is_visible_for_toggle.set(is_visible);
     });
     let password_controls = BoxSizer::builder(Orientation::Horizontal).build();
     password_controls.add(&password, 1, SizerFlag::All | SizerFlag::Expand, 0);
-    password_controls.add(&password_visible, 1, SizerFlag::All | SizerFlag::Expand, 0);
     password_controls.add(&password_toggle, 0, SizerFlag::All, 4);
     password_panel.set_sizer(password_controls, true);
     let url = TextCtrl::builder(&entry_page).with_value(entry.get_url().unwrap_or("")).build();
@@ -633,11 +600,7 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
         with_node_mut::<Entry, _, _>(&node_for_ok, |entry| {
             let title_value = title.get_value();
             let username_value = username.get_value();
-            let password_value = if password_is_visible.get() {
-                password_visible.get_value()
-            } else {
-                password.get_value()
-            };
+            let password_value = password.get_value();
             let url_value = url.get_value();
             let notes_value = notes.get_value();
             entry.set_title(if title_value.trim().is_empty() { None } else { Some(&title_value) });

@@ -490,10 +490,12 @@ pub fn show_entry_editor(parent: &dyn WxWidget, node: &NodePtr, kpdb: Rc<RefCell
             let result = FaviconDownloader::new()
                 .and_then(|downloader| downloader.download(&website_url))
                 .and_then(|favicon| {
-                    favicon.ok_or_else(|| "No favicon found for this URL".into()).and_then(|favicon| {
-                        let source_url = favicon.source_url.to_string();
-                        favicon.to_png_bytes().map(|png_bytes| (png_bytes, source_url))
-                    })
+                    favicon
+                        .ok_or_else(|| "No favicon was found for this URL.".into())
+                        .and_then(|favicon| {
+                            let source_url = favicon.source_url.to_string();
+                            favicon.to_png_bytes().map(|png_bytes| (png_bytes, source_url))
+                        })
                 })
                 .map_err(|error| error.to_string());
             *download_result_for_worker.lock().unwrap() = Some(result);

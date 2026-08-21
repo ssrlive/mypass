@@ -9,8 +9,8 @@ use std::{
     rc::Rc,
 };
 use wxdragon::{
-    BoxSizer, Button, ButtonEvents, Dialog, FileDialog, FileDialogStyle, MessageDialog, MessageDialogStyle, Orientation, Panel,
-    ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticText, WxWidget,
+    BoxSizer, Button, ButtonEvents, Dialog, FileDialog, FileDialogStyle, FlexGridSizer, MessageDialog, MessageDialogStyle, Orientation,
+    Panel, ScrolledWindow, ScrolledWindowStyle, Size, SizerFlag, StaticText, WxWidget,
 };
 
 pub(crate) fn show_icon_picker(parent: &dyn WxWidget, kpdb: Rc<RefCell<Option<KpDb>>>, current: Icon) -> Option<Icon> {
@@ -69,7 +69,7 @@ pub(crate) fn show_icon_picker(parent: &dyn WxWidget, kpdb: Rc<RefCell<Option<Kp
     let scroll = ScrolledWindow::builder(&panel).with_style(ScrolledWindowStyle::VScroll).build();
     scroll.set_scroll_rate(0, 20);
     scroll.enable_scrolling(false, true);
-    let custom_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+    let custom_sizer = FlexGridSizer::builder(0, 15).with_vgap(1).with_hgap(1).build();
     let add_custom = Rc::new({
         let buttons = Rc::clone(&buttons);
         let selected = Rc::clone(&selected);
@@ -93,7 +93,7 @@ pub(crate) fn show_icon_picker(parent: &dyn WxWidget, kpdb: Rc<RefCell<Option<Kp
                 default_background,
             );
             buttons.borrow_mut().push((button, icon));
-            custom_sizer.add(&button, 0, SizerFlag::All, 2);
+            custom_sizer.add(&button, 0, SizerFlag::All, 1);
         }
     });
     if let Some(db) = kpdb.borrow().as_ref().and_then(|db| db.db.as_ref()) {

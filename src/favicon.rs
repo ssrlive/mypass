@@ -1,4 +1,5 @@
 use crate::error::Result;
+use crate::settings::{ProxyProtocol, Settings};
 use regex::Regex;
 use reqwest::blocking::Client;
 use std::io::Cursor;
@@ -77,12 +78,26 @@ pub struct FaviconDownloader {
 
 impl FaviconDownloader {
     pub fn new() -> Result<Self> {
-        Ok(Self {
-            client: Client::builder()
-                .user_agent("mypass favicon downloader")
-                .timeout(Duration::from_secs(10))
-                .build()?,
-        })
+        let mut builder = Client::builder()
+            .user_agent("mypass favicon downloader")
+            .timeout(Duration::from_secs(10));
+        if let Some(proxy) = Settings::load().proxy
+            && let Some(scheme) = match proxy.protocol {
+                ProxyProtocol::Http => Some("http"),
+                ProxyProtocol::Socks5 => Some("socks5h"),
+                ProxyProtocol::None => None,
+            }
+        {
+            let mut proxy_url = Url::parse(&format!("{scheme}://{}:{}", proxy.host, proxy.port))?;
+            if let Some(username) = proxy.username.as_deref() {
+                proxy_url.set_username(username).map_err(|_| "invalid proxy username")?;
+            }
+            if let Some(password) = proxy.password.as_deref() {
+                proxy_url.set_password(Some(password)).map_err(|_| "invalid proxy password")?;
+            }
+            builder = builder.proxy(reqwest::Proxy::all(proxy_url)?);
+        }
+        Ok(Self { client: builder.build()? })
     }
 
     /// Finds and downloads the first usable favicon for the supplied website URL.

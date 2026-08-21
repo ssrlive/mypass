@@ -16,6 +16,7 @@ pub mod icon_cache;
 pub mod icon_picker;
 pub mod keepass;
 pub mod settings;
+pub mod settings_dlg;
 
 use keepass::KpDb;
 use settings::{MAX_RECENT_FILES, Settings};
@@ -58,7 +59,7 @@ fn update_recent_menu(menu_bar: &MenuBar, recent_files: Option<&[String]>) {
     let Some(file_menu) = menu_bar.get_menu(0) else {
         return;
     };
-    let Some(recent_item) = file_menu.find_item_by_position(4) else {
+    let Some(recent_item) = file_menu.find_item_by_position(6) else {
         return;
     };
     let Some(recent_menu) = recent_item.get_sub_menu() else {
@@ -586,6 +587,8 @@ fn on_wxdragon_init(_app: App) {
         .append_item(MENU_OPEN, "Open...", "Open a KeePass database")
         .append_item(MENU_SAVE, "Save", "Save the current database")
         .append_item(MENU_CLOSE, "Close", "Close the current database")
+        .append_separator()
+        .append_item(MENU_SETTINGS, "Settings", "Open application settings")
         .build();
     file_menu.append_separator();
     file_menu.append_submenu(recent_menu, "Recent files", "Open a recently used KeePass database");
@@ -871,6 +874,9 @@ fn on_wxdragon_init(_app: App) {
             Ok(()) => status_bar.set_status_text("Database saved", 0),
             Err(error) => status_bar.set_status_text(&format!("Save failed: {error}"), 0),
         },
+        MENU_SETTINGS => {
+            settings_dlg::show(&frame, &mut settings_for_menu.borrow_mut());
+        }
         MENU_CLOSE => match close_current_file(
             frame,
             &kpdb_for_menu,
@@ -1069,6 +1075,7 @@ fn on_wxdragon_init(_app: App) {
         .append_item(MENU_EXIT, "Exit", "Exit the application")
         .build();
 
+    let settings_for_tray = Rc::clone(&settings);
     let taskbar = TaskBarIcon::builder().with_icon_type(TaskBarIconType::Default).build();
     taskbar.set_popup_menu(&mut popup_menu);
 
@@ -1081,7 +1088,7 @@ fn on_wxdragon_init(_app: App) {
                 frame.show(true);
             }
             MENU_SETTINGS => {
-                log::info!("Settings clicked");
+                settings_dlg::show(&frame, &mut settings_for_tray.borrow_mut());
             }
             MENU_ABOUT => {
                 MessageDialog::builder(&frame, "A KeePass database viewer.", "About mypass")

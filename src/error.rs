@@ -27,13 +27,13 @@ pub enum Error {
     #[error("image conversion error: {0}")]
     Image(#[from] image::ImageError),
 
-    #[error("&str error: {0}")]
+    #[error("{0}")]
     Str(String),
 
-    #[error("String error: {0}")]
+    #[error("{0}")]
     String(String),
 
-    #[error("&String error: {0}")]
+    #[error("{0}")]
     RefString(String),
 }
 

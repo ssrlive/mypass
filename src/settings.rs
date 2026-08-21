@@ -4,13 +4,39 @@ use std::path::PathBuf;
 
 pub const MAX_RECENT_FILES: usize = 10;
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ProxyProtocol {
+    #[default]
+    None,
+    Http,
+    Socks5,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ProxySettings {
+    pub protocol: ProxyProtocol,
+    pub host: String,
+    pub port: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Settings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_position: Option<[i32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window_size: Option<[i32; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree_width: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub show_tree_panel: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recent_files: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy: Option<ProxySettings>,
 }
 
 impl Settings {

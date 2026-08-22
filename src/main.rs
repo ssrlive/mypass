@@ -540,7 +540,7 @@ async fn main() {
     }
 }
 
-fn on_wxdragon_init(_app: App) {
+fn on_wxdragon_init(app: App) {
     let settings = Rc::new(RefCell::new(Settings::load()));
     let application_icon = application_icon();
     let frame = Frame::builder().with_title("mypass").with_size(Size::new(960, 640)).build();
@@ -1152,6 +1152,12 @@ fn on_wxdragon_init(_app: App) {
         timer_for_destroy.stop();
     });
 
+    let os_shuting_down = Rc::new(Cell::new(false));
+    let os_shuting_down_1 = Rc::clone(&os_shuting_down);
+    app.on_query_end_session(move |_event| {
+        os_shuting_down_1.set(true);
+    });
+
     let kpdb_for_close = Rc::clone(&kpdb);
     let settings_for_close = Rc::clone(&settings);
     let tree_pane_for_close = tree_pane;
@@ -1160,6 +1166,10 @@ fn on_wxdragon_init(_app: App) {
         if let wxdragon::WindowEventData::General(event) = &evt
             && event.can_veto()
         {
+            if os_shuting_down.get() {
+                _ = save_if_data_changed(frame, &kpdb_for_close);
+                return;
+            }
             event.veto();
             frame.show(false);
             return;

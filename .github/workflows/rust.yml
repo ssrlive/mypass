@@ -15,33 +15,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - x86_64-apple-darwin
-          - x86_64-pc-windows-msvc
-          - i686-pc-windows-msvc
-
         include:
           - target: x86_64-unknown-linux-gnu
             host_os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            host_os: ubuntu-22.04-arm
           - target: x86_64-apple-darwin
+            host_os: macos-latest
+          - target: aarch64-apple-darwin
             host_os: macos-latest
           - target: x86_64-pc-windows-msvc
             host_os: windows-latest
-          - target: i686-pc-windows-msvc
+          - target: i686-win7-windows-msvc
             host_os: windows-latest
+            build_nightly: true
 
     runs-on: ${{ matrix.host_os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
       - name: Prepare
         shell: bash
         run: |
-          rustup target add ${{ matrix.target }}
+          if [[ "${{ matrix.target }}" != "i686-win7-windows-msvc" ]]; then
+            rustup target add ${{ matrix.target }}
+          fi
 
       - name: Install packages (Linux)
         if: runner.os == 'Linux'
@@ -57,22 +60,35 @@ jobs:
 
       - name: Clippy
         if: ${{ !cancelled() }}
-        run: cargo clippy --all-features --all-targets -- -D warnings
+        shell: bash
+        run: |
+          if [[ "${{ matrix.build_nightly }}" != "true" ]]; then
+            cargo clippy --release --all-features --target ${{ matrix.target }} -- -D warnings
+          fi
 
       - name: check --all-features
         if: ${{ !cancelled() }}
-        run: cargo check --all-features --target ${{ matrix.target }}
-
+        shell: bash
+        run: |
+          if [[ "${{ matrix.build_nightly }}" != "true" ]]; then
+            cargo check --release --all-features --target ${{ matrix.target }}
+          fi
       - name: Build
         if: ${{ !cancelled() }}
-        run: cargo build --verbose --all-features --target ${{ matrix.target }}
+        shell: bash
+        run: |
+          if [[ "${{ matrix.build_nightly }}" == "true" ]]; then
+            rustup toolchain install nightly
+            rustup component add rust-src --toolchain nightly
+            cargo +nightly build --release -Z build-std --target ${{ matrix.target }}
+          else
+            cargo build --release --verbose --all-features --target ${{ matrix.target }}
+          fi
 
       - name: Run tests
         if: ${{ !cancelled() }}
         shell: bash
         run: |
-          if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
-            cargo test --verbose --all-features --target ${{ matrix.target }} -- --skip test_find_cjk_fonts
-          else
-            cargo test --verbose --all-features --target ${{ matrix.target }}
+          if [[ "${{ matrix.build_nightly }}" != "true" ]]; then
+            cargo test --release --verbose --all-features --target ${{ matrix.target }}
           fi

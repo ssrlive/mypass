@@ -22,7 +22,7 @@ keepass-ng = { version = "0.11.11", features = [
     "challenge_response",
     "merge",
 ] }
-log = "0.4.33"
+log = "0.4.34"
 regex = "1.12.3"
 reqwest = { version = "0.13.4", default-features = false, features = [
     "blocking",
@@ -36,7 +36,7 @@ thiserror = "2.0.20"
 tokio = { version = "1.53.1", features = ["full"] }
 tray-icon = "0.24.2"
 url = "2.5.8"
-wxdragon = { version = "0.9.18", git = "https://github.com/AllenDang/wxDragon.git", rev = "8781d01", default-features = false, features = [
+wxdragon = { version = "0.9.18", git = "https://github.com/AllenDang/wxDragon.git", rev = "27ebeee", default-features = false, features = [
     "aui",
 ] }
 # wxdragon = { version = "0.9.18", path = "../wxDragon/rust/wxdragon", default-features = false, features = [
